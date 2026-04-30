@@ -200,6 +200,128 @@ pub fn main() !void {
 
     std.debug.print("Selected physical device with graphics family: {}, present family: {}\n", .{ graphics_family, present_family });
 
+    // Logical device creation
+    const CreateDeviceFn = *const fn (
+        c.VkPhysicalDevice,
+        [*c]const c.VkDeviceCreateInfo,
+        ?*const c.VkAllocationCallbacks,
+        *c.VkDevice,
+    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+
+    const GetDeviceQueueFn = *const fn (
+        c.VkDevice,
+        u32,
+        u32,
+        *c.VkQueue,
+    ) callconv(std.builtin.CallingConvention.c) void;
+
+    const EnumerateDeviceExtensionPropertiesFn = *const fn (
+        c.VkPhysicalDevice,
+        ?[*:0]const u8,
+        *u32,
+        ?[*]c.VkExtensionProperties,
+    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+
+    const DestroyDeviceFn = *const fn (
+        c.VkDevice,
+        ?*const c.VkAllocationCallbacks,
+    ) callconv(std.builtin.CallingConvention.c) void;
+
+    const vkCreateDevice: CreateDeviceFn =
+        loadVulkanFunc(CreateDeviceFn, instance, "vkCreateDevice");
+
+    const vkGetDeviceQueue: GetDeviceQueueFn =
+        loadVulkanFunc(GetDeviceQueueFn, instance, "vkGetDeviceQueue");
+
+    const vkEnumerateDeviceExtensionProperties: EnumerateDeviceExtensionPropertiesFn =
+        loadVulkanFunc(EnumerateDeviceExtensionPropertiesFn, instance, "vkEnumerateDeviceExtensionProperties");
+
+    const vkDestroyDevice: DestroyDeviceFn =
+        loadVulkanFunc(DestroyDeviceFn, instance, "vkDestroyDevice");
+
+    // Check for swapchain extension support
+    var extension_count: u32 = 0;
+    if (vkEnumerateDeviceExtensionProperties(selected_device, null, &extension_count, null) != c.VK_SUCCESS) {
+        std.debug.print("Failed to enumerate device extensions\n", .{});
+        return error.EnumerateExtensionsFailed;
+    }
+
+    const device_extensions = try allocator.alloc(c.VkExtensionProperties, extension_count);
+    defer allocator.free(device_extensions);
+
+    if (vkEnumerateDeviceExtensionProperties(selected_device, null, &extension_count, device_extensions.ptr) != c.VK_SUCCESS) {
+        std.debug.print("Failed to get device extensions\n", .{});
+        return error.GetExtensionsFailed;
+    }
+
+    const swapchain_extension = "VK_KHR_swapchain";
+    var swapchain_supported = false;
+    for (device_extensions) |ext| {
+        const raw_name: [*c]const u8 = @ptrCast(&ext.extensionName);
+        const name = std.mem.span(raw_name);
+        if (std.mem.eql(u8, name, swapchain_extension)) {
+            swapchain_supported = true;
+            break;
+        }
+    }
+
+    if (!swapchain_supported) {
+        std.debug.print("VK_KHR_swapchain extension not supported\n", .{});
+        return error.SwapchainNotSupported;
+    }
+    std.debug.print("VK_KHR_swapchain extension supported\n", .{});
+
+    // Create queues - handle case where graphics and present are same family
+    const same_family = graphics_family == present_family;
+    const queue_count: u32 = if (same_family) 1 else 2;
+    const queue_priority: f32 = 1.0;
+
+    // Allocate queue create infos
+    const queue_create_infos = try allocator.alloc(c.VkDeviceQueueCreateInfo, queue_count);
+    defer allocator.free(queue_create_infos);
+
+    queue_create_infos[0] = c.VkDeviceQueueCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+        .queueFamilyIndex = graphics_family,
+        .queueCount = 1,
+        .pQueuePriorities = &queue_priority,
+    };
+
+    if (!same_family) {
+        queue_create_infos[1] = c.VkDeviceQueueCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+            .queueFamilyIndex = present_family,
+            .queueCount = 1,
+            .pQueuePriorities = &queue_priority,
+        };
+    }
+
+    // Device extensions to enable
+    const enabled_extensions = [_][*c]const u8{swapchain_extension ++ "\x00"};
+
+    const device_create_info = c.VkDeviceCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+        .queueCreateInfoCount = @intCast(queue_count),
+        .pQueueCreateInfos = &queue_create_infos[0],
+        .enabledExtensionCount = 1,
+        .ppEnabledExtensionNames = &enabled_extensions[0],
+    };
+
+    var device: c.VkDevice = undefined;
+    if (vkCreateDevice(selected_device, &device_create_info, null, &device) != c.VK_SUCCESS) {
+        std.debug.print("Failed to create logical device\n", .{});
+        return error.DeviceCreationFailed;
+    }
+    defer vkDestroyDevice(device, null);
+
+    // Get queue handles
+    var graphics_queue: c.VkQueue = undefined;
+    var present_queue: c.VkQueue = undefined;
+    vkGetDeviceQueue(device, graphics_family, 0, &graphics_queue);
+    vkGetDeviceQueue(device, present_family, 0, &present_queue);
+
+    std.debug.print("Logical device created successfully\n", .{});
+
     // Main loop
     while (c.glfwWindowShouldClose(window) == 0) {
         c.glfwPollEvents();
