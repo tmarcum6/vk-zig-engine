@@ -322,6 +322,256 @@ pub fn main() !void {
 
     std.debug.print("Logical device created successfully\n", .{});
 
+    // Swapchain creation
+    const GetPhysicalDeviceSurfaceCapabilitiesKHRFn = *const fn (
+        c.VkPhysicalDevice,
+        c.VkSurfaceKHR,
+        *c.VkSurfaceCapabilitiesKHR,
+    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+
+    const GetPhysicalDeviceSurfaceFormatsKHRFn = *const fn (
+        c.VkPhysicalDevice,
+        c.VkSurfaceKHR,
+        *u32,
+        ?[*]c.VkSurfaceFormatKHR,
+    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+
+    const GetPhysicalDeviceSurfacePresentModesKHRFn = *const fn (
+        c.VkPhysicalDevice,
+        c.VkSurfaceKHR,
+        *u32,
+        ?[*]c.VkPresentModeKHR,
+    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+
+    const CreateSwapchainKHRFn = *const fn (
+        c.VkDevice,
+        [*c]const c.VkSwapchainCreateInfoKHR,
+        ?*const c.VkAllocationCallbacks,
+        *c.VkSwapchainKHR,
+    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+
+    const DestroySwapchainKHRFn = *const fn (
+        c.VkDevice,
+        c.VkSwapchainKHR,
+        ?*const c.VkAllocationCallbacks,
+    ) callconv(std.builtin.CallingConvention.c) void;
+
+    const GetSwapchainImagesKHRFn = *const fn (
+        c.VkDevice,
+        c.VkSwapchainKHR,
+        *u32,
+        ?[*]c.VkImage,
+    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+
+    const CreateImageViewFn = *const fn (
+        c.VkDevice,
+        [*c]const c.VkImageViewCreateInfo,
+        ?*const c.VkAllocationCallbacks,
+        *c.VkImageView,
+    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+
+    const DestroyImageViewFn = *const fn (
+        c.VkDevice,
+        c.VkImageView,
+        ?*const c.VkAllocationCallbacks,
+    ) callconv(std.builtin.CallingConvention.c) void;
+
+    const vkGetPhysicalDeviceSurfaceCapabilitiesKHR: GetPhysicalDeviceSurfaceCapabilitiesKHRFn =
+        loadVulkanFunc(GetPhysicalDeviceSurfaceCapabilitiesKHRFn, instance, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
+
+    const vkGetPhysicalDeviceSurfaceFormatsKHR: GetPhysicalDeviceSurfaceFormatsKHRFn =
+        loadVulkanFunc(GetPhysicalDeviceSurfaceFormatsKHRFn, instance, "vkGetPhysicalDeviceSurfaceFormatsKHR");
+
+    const vkGetPhysicalDeviceSurfacePresentModesKHR: GetPhysicalDeviceSurfacePresentModesKHRFn =
+        loadVulkanFunc(GetPhysicalDeviceSurfacePresentModesKHRFn, instance, "vkGetPhysicalDeviceSurfacePresentModesKHR");
+
+    const vkCreateSwapchainKHR: CreateSwapchainKHRFn =
+        loadVulkanFunc(CreateSwapchainKHRFn, instance, "vkCreateSwapchainKHR");
+
+    const vkDestroySwapchainKHR: DestroySwapchainKHRFn =
+        loadVulkanFunc(DestroySwapchainKHRFn, instance, "vkDestroySwapchainKHR");
+
+    const vkGetSwapchainImagesKHR: GetSwapchainImagesKHRFn =
+        loadVulkanFunc(GetSwapchainImagesKHRFn, instance, "vkGetSwapchainImagesKHR");
+
+    const vkCreateImageView: CreateImageViewFn =
+        loadVulkanFunc(CreateImageViewFn, instance, "vkCreateImageView");
+
+    const vkDestroyImageView: DestroyImageViewFn =
+        loadVulkanFunc(DestroyImageViewFn, instance, "vkDestroyImageView");
+
+    // Query surface capabilities
+    var surface_capabilities: c.VkSurfaceCapabilitiesKHR = undefined;
+    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(selected_device, surface, &surface_capabilities) != c.VK_SUCCESS) {
+        std.debug.print("Failed to get surface capabilities\n", .{});
+        return error.SurfaceCapabilitiesFailed;
+    }
+
+    // Query surface formats
+    var format_count: u32 = 0;
+    if (vkGetPhysicalDeviceSurfaceFormatsKHR(selected_device, surface, &format_count, null) != c.VK_SUCCESS) {
+        std.debug.print("Failed to get surface format count\n", .{});
+        return error.SurfaceFormatsFailed;
+    }
+
+    const surface_formats = try allocator.alloc(c.VkSurfaceFormatKHR, format_count);
+    defer allocator.free(surface_formats);
+
+    if (vkGetPhysicalDeviceSurfaceFormatsKHR(selected_device, surface, &format_count, surface_formats.ptr) != c.VK_SUCCESS) {
+        std.debug.print("Failed to get surface formats\n", .{});
+        return error.SurfaceFormatsFailed;
+    }
+
+    // Query present modes
+    var present_mode_count: u32 = 0;
+    if (vkGetPhysicalDeviceSurfacePresentModesKHR(selected_device, surface, &present_mode_count, null) != c.VK_SUCCESS) {
+        std.debug.print("Failed to get present mode count\n", .{});
+        return error.PresentModesFailed;
+    }
+
+    const present_modes = try allocator.alloc(c.VkPresentModeKHR, present_mode_count);
+    defer allocator.free(present_modes);
+
+    if (vkGetPhysicalDeviceSurfacePresentModesKHR(selected_device, surface, &present_mode_count, present_modes.ptr) != c.VK_SUCCESS) {
+        std.debug.print("Failed to get present modes\n", .{});
+        return error.PresentModesFailed;
+    }
+
+    // Choose surface format (prefer SRGB8888 with BGRA or RGBA)
+    var surface_format: c.VkSurfaceFormatKHR = undefined;
+    if (format_count == 1 and surface_formats[0].format == c.VK_FORMAT_UNDEFINED) {
+        // Any format is allowed
+        surface_format = c.VkSurfaceFormatKHR{
+            .format = c.VK_FORMAT_B8G8R8A8_SRGB,
+            .colorSpace = c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
+        };
+    } else {
+        // Look for SRGB8888
+        var found = false;
+        for (surface_formats[0..format_count]) |fmt| {
+            if (fmt.format == c.VK_FORMAT_B8G8R8A8_SRGB and fmt.colorSpace == c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+                surface_format = fmt;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            surface_format = surface_formats[0];
+        }
+    }
+
+    // Choose present mode (prefer MAILBOX for triple buffering, fallback to FIFO)
+    var present_mode: c.VkPresentModeKHR = c.VK_PRESENT_MODE_FIFO_KHR; // Always supported
+    for (present_modes[0..present_mode_count]) |mode| {
+        if (mode == c.VK_PRESENT_MODE_MAILBOX_KHR) {
+            present_mode = mode;
+            break;
+        }
+    }
+
+    // Choose swap extent (swapchain dimensions)
+    var extent: c.VkExtent2D = undefined;
+    if (surface_capabilities.currentExtent.width != 0xFFFFFFFF) {
+        extent = surface_capabilities.currentExtent;
+    } else {
+        extent = c.VkExtent2D{
+            .width = @min(surface_capabilities.maxImageExtent.width, @max(surface_capabilities.minImageExtent.width, 800)),
+            .height = @min(surface_capabilities.maxImageExtent.height, @max(surface_capabilities.minImageExtent.height, 600)),
+        };
+    }
+
+    // Determine image count (prefer one more than minimum for triple buffering)
+    var image_count: u32 = surface_capabilities.minImageCount + 1;
+    if (surface_capabilities.maxImageCount > 0 and image_count > surface_capabilities.maxImageCount) {
+        image_count = surface_capabilities.maxImageCount;
+    }
+
+    // Create swapchain
+    const swapchain_info = c.VkSwapchainCreateInfoKHR{
+        .sType = c.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+        .surface = surface,
+        .minImageCount = image_count,
+        .imageFormat = surface_format.format,
+        .imageColorSpace = surface_format.colorSpace,
+        .imageExtent = extent,
+        .imageArrayLayers = 1,
+        .imageUsage = c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .preTransform = surface_capabilities.currentTransform,
+        .compositeAlpha = c.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+        .presentMode = present_mode,
+        .clipped = c.VK_TRUE,
+        .oldSwapchain = null,
+    };
+
+    // Handle sharing mode for queue families
+    var swapchain_info_ptr = swapchain_info;
+    if (same_family) {
+        swapchain_info_ptr.imageSharingMode = c.VK_SHARING_MODE_EXCLUSIVE;
+    } else {
+        swapchain_info_ptr.imageSharingMode = c.VK_SHARING_MODE_CONCURRENT;
+        swapchain_info_ptr.queueFamilyIndexCount = 2;
+        var queue_family_indices = [_]u32{ graphics_family, present_family };
+        swapchain_info_ptr.pQueueFamilyIndices = &queue_family_indices;
+    }
+
+    var swapchain: c.VkSwapchainKHR = undefined;
+    if (vkCreateSwapchainKHR(device, &swapchain_info_ptr, null, &swapchain) != c.VK_SUCCESS) {
+        std.debug.print("Failed to create swapchain\n", .{});
+        return error.SwapchainCreationFailed;
+    }
+    defer vkDestroySwapchainKHR(device, swapchain, null);
+
+    std.debug.print("Swapchain created: {}x{} format={}, present_mode={}, images={}\n", .{
+        extent.width, extent.height, surface_format.format, present_mode, image_count,
+    });
+
+    // Get swapchain images
+    var swapchain_image_count: u32 = 0;
+    if (vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, null) != c.VK_SUCCESS) {
+        std.debug.print("Failed to get swapchain image count\n", .{});
+        return error.SwapchainImagesFailed;
+    }
+
+    const swapchain_images = try allocator.alloc(c.VkImage, swapchain_image_count);
+    defer allocator.free(swapchain_images);
+
+    if (vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, swapchain_images.ptr) != c.VK_SUCCESS) {
+        std.debug.print("Failed to get swapchain images\n", .{});
+        return error.SwapchainImagesFailed;
+    }
+
+    // Create image views for each swapchain image
+    const swapchain_image_views = try allocator.alloc(c.VkImageView, swapchain_image_count);
+    defer {
+        for (swapchain_image_views[0..swapchain_image_count]) |view| {
+            vkDestroyImageView(device, view, null);
+        }
+        allocator.free(swapchain_image_views);
+    }
+
+    for (swapchain_images[0..swapchain_image_count], 0..) |img, i| {
+        const view_info = c.VkImageViewCreateInfo{
+            .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .image = img,
+            .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
+            .format = surface_format.format,
+            .subresourceRange = c.VkImageSubresourceRange{
+                .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+        };
+
+        if (vkCreateImageView(device, &view_info, null, &swapchain_image_views[i]) != c.VK_SUCCESS) {
+            std.debug.print("Failed to create image view {}\n", .{i});
+            return error.ImageViewCreationFailed;
+        }
+    }
+
+    std.debug.print("Created {} image views\n", .{swapchain_image_count});
+
     // Main loop
     while (c.glfwWindowShouldClose(window) == 0) {
         c.glfwPollEvents();
