@@ -1,0 +1,17 @@
+.{
+    .name = .vk_zig_engine,
+    .version = "0.0.0",
+    .fingerprint = 0xe091ad43bf6e7dfc,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        .vulkan = .{
+            .url = "git+https://github.com/Snektron/vulkan-zig?ref=master#5234ae68d1ac143b3ebd1a6e2e40aaa0ef7693c7",
+            .hash = "vulkan-0.0.0-r7Ytx7t9AwBjKG7tnhReEVo0P2fvstTc8G_0qF8iog_V",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
