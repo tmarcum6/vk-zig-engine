@@ -572,6 +572,60 @@ pub fn main() !void {
 
     std.debug.print("Created {} image views\n", .{swapchain_image_count});
 
+    // Shader modules creation
+    const DestroyShaderModuleFn = *const fn (
+        c.VkDevice,
+        c.VkShaderModule,
+        ?*const c.VkAllocationCallbacks,
+    ) callconv(std.builtin.CallingConvention.c) void;
+
+    const CreateShaderModuleFn = *const fn (
+        c.VkDevice,
+        [*c]const c.VkShaderModuleCreateInfo,
+        ?*const c.VkAllocationCallbacks,
+        *c.VkShaderModule,
+    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+
+    const vkCreateShaderModule: CreateShaderModuleFn =
+        loadVulkanFunc(CreateShaderModuleFn, instance, "vkCreateShaderModule");
+
+    const vkDestroyShaderModule: DestroyShaderModuleFn =
+        loadVulkanFunc(DestroyShaderModuleFn, instance, "vkDestroyShaderModule");
+
+    // Embed SPIR-V bytecode
+    const vert_spirv = @embedFile("shaders/triangle.vert.spv");
+    const frag_spirv = @embedFile("shaders/triangle.frag.spv");
+
+    // Create vertex shader module
+    const vert_info = c.VkShaderModuleCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+        .codeSize = vert_spirv.len,
+        .pCode = @ptrCast(@alignCast(vert_spirv)),
+    };
+
+    var vert_shader_module: c.VkShaderModule = undefined;
+    if (vkCreateShaderModule(device, &vert_info, null, &vert_shader_module) != c.VK_SUCCESS) {
+        std.debug.print("Failed to create vertex shader module\n", .{});
+        return error.VertexShaderModuleFailed;
+    }
+    defer vkDestroyShaderModule(device, vert_shader_module, null);
+
+    // Create fragment shader module
+    const frag_info = c.VkShaderModuleCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+        .codeSize = frag_spirv.len,
+        .pCode = @ptrCast(@alignCast(frag_spirv)),
+    };
+
+    var frag_shader_module: c.VkShaderModule = undefined;
+    if (vkCreateShaderModule(device, &frag_info, null, &frag_shader_module) != c.VK_SUCCESS) {
+        std.debug.print("Failed to create fragment shader module\n", .{});
+        return error.FragmentShaderModuleFailed;
+    }
+    defer vkDestroyShaderModule(device, frag_shader_module, null);
+
+    std.debug.print("Shader modules created successfully\n", .{});
+
     // Main loop
     while (c.glfwWindowShouldClose(window) == 0) {
         c.glfwPollEvents();

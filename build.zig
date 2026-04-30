@@ -50,6 +50,22 @@ pub fn build(b: *std.Build) void {
         exe.root_module.linkSystemLibrary("MoltenVK", .{});
     }
 
+    // Shader compilation step (GLSL -> SPIR-V)
+    const shaders_step = b.step("shaders", "Compile GLSL shaders to SPIR-V");
+
+    const shader_sources = [_][]const u8{ "triangle.vert", "triangle.frag" };
+    for (shader_sources) |src_name| {
+        const src_path = b.pathJoin(&.{ "src", "shaders", src_name });
+        const dst_path = b.pathJoin(&.{ "src", "shaders", b.fmt("{s}.spv", .{src_name}) });
+
+        const compile = b.addSystemCommand(&[_][]const u8{ "glslangValidator", "-V", src_path, "-o", dst_path });
+        compile.setName(b.fmt("compile {s}", .{src_name}));
+        shaders_step.dependOn(&compile.step);
+    }
+
+    // Make install depend on shader compilation
+    b.getInstallStep().dependOn(shaders_step);
+
     b.installArtifact(exe);
 
     const run_step = b.step("run", "Run the app");
