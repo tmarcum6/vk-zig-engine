@@ -8,6 +8,10 @@ fn loadVulkanFunc(comptime T: type, instance: c.VkInstance, name: [*c]const u8) 
 }
 
 pub fn main() !void {
+    var gpa = std.heap.DebugAllocator(.{}){};
+    const allocator = gpa.allocator();
+    defer _ = gpa.deinit();
+
     // Initialize GLFW
     if (c.glfwInit() == 0) {
         std.debug.print("Failed to initialize GLFW\n", .{});
@@ -138,7 +142,6 @@ pub fn main() !void {
     }
 
     // Allocate and get physical devices
-    const allocator = std.heap.page_allocator;
     const physical_devices = try allocator.alloc(c.VkPhysicalDevice, device_count);
     defer allocator.free(physical_devices);
 
@@ -154,6 +157,10 @@ pub fn main() !void {
     var device_found = false;
 
     for (physical_devices) |device| {
+        // Per-device variables to avoid cross-device contamination
+        var g_family: u32 = std.math.maxInt(u32);
+        var p_family: u32 = std.math.maxInt(u32);
+
         // Get queue family count
         var queue_family_count: u32 = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, null);
@@ -165,28 +172,30 @@ pub fn main() !void {
         defer allocator.free(queue_families);
         vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, queue_families.ptr);
 
-        // Check each queue family
+        // Check each queue family for this device only
         for (queue_families, 0..) |props, i| {
             const family_idx: u32 = @intCast(i);
 
             // Check for graphics support
             if (props.queueFlags & c.VK_QUEUE_GRAPHICS_BIT != 0) {
-                if (graphics_family == std.math.maxInt(u32)) {
-                    graphics_family = family_idx;
+                if (g_family == std.math.maxInt(u32)) {
+                    g_family = family_idx;
                 }
             }
 
             // Check for present support
             var present_support: c.VkBool32 = 0;
             if (vkGetPhysicalDeviceSurfaceSupportKHR(device, family_idx, surface, &present_support) == c.VK_SUCCESS) {
-                if (present_support != 0 and present_family == std.math.maxInt(u32)) {
-                    present_family = family_idx;
+                if (present_support != 0 and p_family == std.math.maxInt(u32)) {
+                    p_family = family_idx;
                 }
             }
         }
 
-        // If device has both graphics and present support, select it
-        if (graphics_family != std.math.maxInt(u32) and present_family != std.math.maxInt(u32)) {
+        // If this device has both graphics and present support, select it
+        if (g_family != std.math.maxInt(u32) and p_family != std.math.maxInt(u32)) {
+            graphics_family = g_family;
+            present_family = p_family;
             selected_device = device;
             device_found = true;
             break;
@@ -505,12 +514,15 @@ pub fn main() !void {
 
     // Handle sharing mode for queue families
     var swapchain_info_ptr = swapchain_info;
+    var queue_family_indices: [2]u32 = undefined;
+
     if (same_family) {
         swapchain_info_ptr.imageSharingMode = c.VK_SHARING_MODE_EXCLUSIVE;
     } else {
         swapchain_info_ptr.imageSharingMode = c.VK_SHARING_MODE_CONCURRENT;
         swapchain_info_ptr.queueFamilyIndexCount = 2;
-        var queue_family_indices = [_]u32{ graphics_family, present_family };
+        queue_family_indices[0] = graphics_family;
+        queue_family_indices[1] = present_family;
         swapchain_info_ptr.pQueueFamilyIndices = &queue_family_indices;
     }
 
@@ -818,8 +830,405 @@ pub fn main() !void {
 
     std.debug.print("Allocated {} command buffers\n", .{swapchain_image_count});
 
+    // Graphics pipeline creation
+    const CreatePipelineLayoutFn = *const fn (
+        c.VkDevice,
+        [*c]const c.VkPipelineLayoutCreateInfo,
+        ?*const c.VkAllocationCallbacks,
+        *c.VkPipelineLayout,
+    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+
+    const DestroyPipelineLayoutFn = *const fn (
+        c.VkDevice,
+        c.VkPipelineLayout,
+        ?*const c.VkAllocationCallbacks,
+    ) callconv(std.builtin.CallingConvention.c) void;
+
+    const CreateGraphicsPipelinesFn = *const fn (
+        c.VkDevice,
+        c.VkPipelineCache,
+        u32,
+        [*c]const c.VkGraphicsPipelineCreateInfo,
+        ?*const c.VkAllocationCallbacks,
+        [*]c.VkPipeline,
+    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+
+    const DestroyPipelineFn = *const fn (
+        c.VkDevice,
+        c.VkPipeline,
+        ?*const c.VkAllocationCallbacks,
+    ) callconv(std.builtin.CallingConvention.c) void;
+
+    const vkCreatePipelineLayout: CreatePipelineLayoutFn =
+        loadVulkanFunc(CreatePipelineLayoutFn, instance, "vkCreatePipelineLayout");
+
+    const vkDestroyPipelineLayout: DestroyPipelineLayoutFn =
+        loadVulkanFunc(DestroyPipelineLayoutFn, instance, "vkDestroyPipelineLayout");
+
+    const vkCreateGraphicsPipelines: CreateGraphicsPipelinesFn =
+        loadVulkanFunc(CreateGraphicsPipelinesFn, instance, "vkCreateGraphicsPipelines");
+
+    const vkDestroyPipeline: DestroyPipelineFn =
+        loadVulkanFunc(DestroyPipelineFn, instance, "vkDestroyPipeline");
+
+    // Create pipeline layout (empty for now, no descriptors)
+    const pipeline_layout_info = c.VkPipelineLayoutCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+    };
+
+    var pipeline_layout: c.VkPipelineLayout = undefined;
+    if (vkCreatePipelineLayout(device, &pipeline_layout_info, null, &pipeline_layout) != c.VK_SUCCESS) {
+        std.debug.print("Failed to create pipeline layout\n", .{});
+        return error.PipelineLayoutCreationFailed;
+    }
+    defer vkDestroyPipelineLayout(device, pipeline_layout, null);
+
+    // Shader stages
+    const vert_stage_info = c.VkPipelineShaderStageCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = c.VK_SHADER_STAGE_VERTEX_BIT,
+        .module = vert_shader_module,
+        .pName = "main",
+    };
+
+    const frag_stage_info = c.VkPipelineShaderStageCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = c.VK_SHADER_STAGE_FRAGMENT_BIT,
+        .module = frag_shader_module,
+        .pName = "main",
+    };
+
+    const shader_stages = [_]c.VkPipelineShaderStageCreateInfo{ vert_stage_info, frag_stage_info };
+
+    // Vertex input state (no vertex buffers for now, hardcoded in shader)
+    const vertex_input_info = c.VkPipelineVertexInputStateCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+    };
+
+    // Input assembly
+    const input_assembly = c.VkPipelineInputAssemblyStateCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+        .topology = c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .primitiveRestartEnable = c.VK_FALSE,
+    };
+
+    // Viewport and scissor
+    const viewport = c.VkViewport{
+        .x = 0.0,
+        .y = 0.0,
+        .width = @floatFromInt(extent.width),
+        .height = @floatFromInt(extent.height),
+        .minDepth = 0.0,
+        .maxDepth = 1.0,
+    };
+
+    const scissor = c.VkRect2D{
+        .offset = .{ .x = 0, .y = 0 },
+        .extent = extent,
+    };
+
+    const viewport_state = c.VkPipelineViewportStateCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        .viewportCount = 1,
+        .pViewports = &viewport,
+        .scissorCount = 1,
+        .pScissors = &scissor,
+    };
+
+    // Rasterizer
+    const rasterizer = c.VkPipelineRasterizationStateCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .depthClampEnable = c.VK_FALSE,
+        .rasterizerDiscardEnable = c.VK_FALSE,
+        .polygonMode = c.VK_POLYGON_MODE_FILL,
+        .cullMode = c.VK_CULL_MODE_NONE,
+        .frontFace = c.VK_FRONT_FACE_CLOCKWISE,
+        .depthBiasEnable = c.VK_FALSE,
+        .lineWidth = 1.0,
+    };
+
+    // Multisampling (no MSAA)
+    const multisampling = c.VkPipelineMultisampleStateCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        .rasterizationSamples = c.VK_SAMPLE_COUNT_1_BIT,
+        .sampleShadingEnable = c.VK_FALSE,
+    };
+
+    // Color blending (no blending, write all channels)
+    const color_blend_attachment = c.VkPipelineColorBlendAttachmentState{
+        .colorWriteMask = c.VK_COLOR_COMPONENT_R_BIT | c.VK_COLOR_COMPONENT_G_BIT | c.VK_COLOR_COMPONENT_B_BIT | c.VK_COLOR_COMPONENT_A_BIT,
+        .blendEnable = c.VK_FALSE,
+    };
+
+    const color_blending = c.VkPipelineColorBlendStateCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .logicOpEnable = c.VK_FALSE,
+        .attachmentCount = 1,
+        .pAttachments = &color_blend_attachment,
+    };
+
+    // Dynamic state (none for now)
+    const pipeline_info = c.VkGraphicsPipelineCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+        .stageCount = 2,
+        .pStages = &shader_stages[0],
+        .pVertexInputState = &vertex_input_info,
+        .pInputAssemblyState = &input_assembly,
+        .pViewportState = &viewport_state,
+        .pRasterizationState = &rasterizer,
+        .pMultisampleState = &multisampling,
+        .pColorBlendState = &color_blending,
+        .layout = pipeline_layout,
+        .renderPass = render_pass,
+        .subpass = 0,
+    };
+
+    var pipeline: c.VkPipeline = undefined;
+    if (vkCreateGraphicsPipelines(device, null, 1, &pipeline_info, null, @ptrCast(&pipeline)) != c.VK_SUCCESS) {
+        std.debug.print("Failed to create graphics pipeline\n", .{});
+        return error.PipelineCreationFailed;
+    }
+    defer vkDestroyPipeline(device, pipeline, null);
+
+    std.debug.print("Graphics pipeline created successfully\n", .{});
+
+    // Record command buffers
+    const BeginCommandBufferFn = *const fn (
+        c.VkCommandBuffer,
+        [*c]const c.VkCommandBufferBeginInfo,
+    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+
+    const EndCommandBufferFn = *const fn (
+        c.VkCommandBuffer,
+    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+
+    const CmdBeginRenderPassFn = *const fn (
+        c.VkCommandBuffer,
+        [*c]const c.VkRenderPassBeginInfo,
+        c.VkSubpassContents,
+    ) callconv(std.builtin.CallingConvention.c) void;
+
+    const CmdBindPipelineFn = *const fn (
+        c.VkCommandBuffer,
+        c.VkPipelineBindPoint,
+        c.VkPipeline,
+    ) callconv(std.builtin.CallingConvention.c) void;
+
+    const CmdDrawFn = *const fn (
+        c.VkCommandBuffer,
+        u32,
+        u32,
+        u32,
+        u32,
+    ) callconv(std.builtin.CallingConvention.c) void;
+
+    const CmdEndRenderPassFn = *const fn (
+        c.VkCommandBuffer,
+    ) callconv(std.builtin.CallingConvention.c) void;
+
+    const vkBeginCommandBuffer: BeginCommandBufferFn =
+        loadVulkanFunc(BeginCommandBufferFn, instance, "vkBeginCommandBuffer");
+
+    const vkEndCommandBuffer: EndCommandBufferFn =
+        loadVulkanFunc(EndCommandBufferFn, instance, "vkEndCommandBuffer");
+
+    const vkCmdBeginRenderPass: CmdBeginRenderPassFn =
+        loadVulkanFunc(CmdBeginRenderPassFn, instance, "vkCmdBeginRenderPass");
+
+    const vkCmdBindPipeline: CmdBindPipelineFn =
+        loadVulkanFunc(CmdBindPipelineFn, instance, "vkCmdBindPipeline");
+
+    const vkCmdDraw: CmdDrawFn =
+        loadVulkanFunc(CmdDrawFn, instance, "vkCmdDraw");
+
+    const vkCmdEndRenderPass: CmdEndRenderPassFn =
+        loadVulkanFunc(CmdEndRenderPassFn, instance, "vkCmdEndRenderPass");
+
+    const clear_color = c.VkClearValue{ .color = .{ .float32 = .{ 0.0, 0.0, 0.0, 1.0 } } };
+
+    for (command_buffers[0..swapchain_image_count], 0..) |cmd, i| {
+        const begin_info = c.VkCommandBufferBeginInfo{
+            .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .flags = c.VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT,
+        };
+
+        if (vkBeginCommandBuffer(cmd, &begin_info) != c.VK_SUCCESS) {
+            std.debug.print("Failed to begin command buffer {}\n", .{i});
+            return error.CommandBufferBeginFailed;
+        }
+
+        const rp_begin = c.VkRenderPassBeginInfo{
+            .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+            .renderPass = render_pass,
+            .framebuffer = framebuffers[i],
+            .renderArea = .{ .offset = .{ .x = 0, .y = 0 }, .extent = extent },
+            .clearValueCount = 1,
+            .pClearValues = &clear_color,
+        };
+
+        vkCmdBeginRenderPass(cmd, &rp_begin, c.VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+        vkCmdEndRenderPass(cmd);
+
+        if (vkEndCommandBuffer(cmd) != c.VK_SUCCESS) {
+            std.debug.print("Failed to end command buffer {}\n", .{i});
+            return error.CommandBufferEndFailed;
+        }
+    }
+
+    std.debug.print("Command buffers recorded successfully\n", .{});
+
+    // Synchronization primitives
+    const CreateSemaphoreFn = *const fn (
+        c.VkDevice,
+        [*c]const c.VkSemaphoreCreateInfo,
+        ?*const c.VkAllocationCallbacks,
+        *c.VkSemaphore,
+    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+
+    const DestroySemaphoreFn = *const fn (
+        c.VkDevice,
+        c.VkSemaphore,
+        ?*const c.VkAllocationCallbacks,
+    ) callconv(std.builtin.CallingConvention.c) void;
+
+    const CreateFenceFn = *const fn (
+        c.VkDevice,
+        [*c]const c.VkFenceCreateInfo,
+        ?*const c.VkAllocationCallbacks,
+        *c.VkFence,
+    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+
+    const DestroyFenceFn = *const fn (
+        c.VkDevice,
+        c.VkFence,
+        ?*const c.VkAllocationCallbacks,
+    ) callconv(std.builtin.CallingConvention.c) void;
+
+    const WaitForFencesFn = *const fn (
+        c.VkDevice,
+        u32,
+        [*]const c.VkFence,
+        c.VkBool32,
+        u64,
+    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+
+    const ResetFencesFn = *const fn (
+        c.VkDevice,
+        u32,
+        [*]const c.VkFence,
+    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+
+    const vkCreateSemaphore: CreateSemaphoreFn =
+        loadVulkanFunc(CreateSemaphoreFn, instance, "vkCreateSemaphore");
+
+    const vkDestroySemaphore: DestroySemaphoreFn =
+        loadVulkanFunc(DestroySemaphoreFn, instance, "vkDestroySemaphore");
+
+    const vkCreateFence: CreateFenceFn =
+        loadVulkanFunc(CreateFenceFn, instance, "vkCreateFence");
+
+    const vkDestroyFence: DestroyFenceFn =
+        loadVulkanFunc(DestroyFenceFn, instance, "vkDestroyFence");
+
+    const vkWaitForFences: WaitForFencesFn =
+        loadVulkanFunc(WaitForFencesFn, instance, "vkWaitForFences");
+
+    const vkResetFences: ResetFencesFn =
+        loadVulkanFunc(ResetFencesFn, instance, "vkResetFences");
+
+    var image_available: c.VkSemaphore = undefined;
+    var render_finished: c.VkSemaphore = undefined;
+    var in_flight_fence: c.VkFence = undefined;
+
+    const semaphore_info = c.VkSemaphoreCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+    };
+
+    if (vkCreateSemaphore(device, &semaphore_info, null, &image_available) != c.VK_SUCCESS or
+        vkCreateSemaphore(device, &semaphore_info, null, &render_finished) != c.VK_SUCCESS) {
+        std.debug.print("Failed to create semaphores\n", .{});
+        return error.SemaphoreCreationFailed;
+    }
+    defer vkDestroySemaphore(device, image_available, null);
+    defer vkDestroySemaphore(device, render_finished, null);
+
+    const fence_info = c.VkFenceCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        .flags = c.VK_FENCE_CREATE_SIGNALED_BIT, // Start signaled so first frame can proceed
+    };
+
+    if (vkCreateFence(device, &fence_info, null, &in_flight_fence) != c.VK_SUCCESS) {
+        std.debug.print("Failed to create fence\n", .{});
+        return error.FenceCreationFailed;
+    }
+    defer vkDestroyFence(device, in_flight_fence, null);
+
+    std.debug.print("Synchronization primitives created\n", .{});
+
+    // Load queue submission and presentation functions
+    const QueueSubmitFn = *const fn (
+        c.VkQueue,
+        u32,
+        [*]const c.VkSubmitInfo,
+        c.VkFence,
+    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+
+    const QueuePresentKHRFn = *const fn (
+        c.VkQueue,
+        [*]const c.VkPresentInfoKHR,
+    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+
+    const vkQueueSubmit: QueueSubmitFn =
+        loadVulkanFunc(QueueSubmitFn, instance, "vkQueueSubmit");
+
+    const vkQueuePresentKHR: QueuePresentKHRFn =
+        loadVulkanFunc(QueuePresentKHRFn, instance, "vkQueuePresentKHR");
+
+    std.debug.print("Starting render loop...\n", .{});
+
     // Main loop
     while (c.glfwWindowShouldClose(window) == 0) {
         c.glfwPollEvents();
+
+        // Wait for previous frame to finish
+        _ = vkWaitForFences(device, 1, @ptrCast(&in_flight_fence), c.VK_TRUE, ~@as(u64, 0));
+        _ = vkResetFences(device, 1, @ptrCast(&in_flight_fence));
+
+        // Acquire next swapchain image
+        var image_index: u32 = undefined;
+        if (c.vkAcquireNextImageKHR(device, swapchain, ~@as(u64, 0), image_available, null, &image_index) != c.VK_SUCCESS) {
+            continue;
+        }
+
+        // Submit command buffer
+        const submit_info = c.VkSubmitInfo{
+            .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores = &image_available,
+            .pWaitDstStageMask = &[_]c.VkPipelineStageFlags{c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
+            .commandBufferCount = 1,
+            .pCommandBuffers = &command_buffers[image_index],
+            .signalSemaphoreCount = 1,
+            .pSignalSemaphores = &render_finished,
+        };
+
+        if (vkQueueSubmit(graphics_queue, 1, @ptrCast(&submit_info), in_flight_fence) != c.VK_SUCCESS) {
+            std.debug.print("Failed to submit draw command buffer\n", .{});
+            break;
+        }
+
+        // Present
+        const present_info = c.VkPresentInfoKHR{
+            .sType = c.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores = &render_finished,
+            .swapchainCount = 1,
+            .pSwapchains = &swapchain,
+            .pImageIndices = &image_index,
+        };
+
+        _ = vkQueuePresentKHR(present_queue, @ptrCast(&present_info));
     }
 }

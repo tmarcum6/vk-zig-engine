@@ -85,8 +85,33 @@ const c = @import("c"); // GLFW functions
 
 ## Current Status
 
+✅ **Completed:**
 - GLFW window opens successfully
 - Vulkan instance creation: **Working**
 - Vulkan surface creation: **Working**
-- Next: Set up Vulkan device, swapchain, and rendering pipeline
-- Later: imgui
+- Physical device selection: **Working**
+- Logical device creation: **Working**
+- Swapchain + image views: **Working**
+- Shader modules (vertex + fragment): **Working**
+- Render pass creation: **Working**
+- Framebuffer creation: **Working**
+- Command pool & buffers: **Working**
+- Graphics pipeline: **Working**
+- Command recording: **Working**
+- Synchronization (semaphores + fences): **Working**
+- Main render loop (acquire → submit → present): **Working**
+- Basic triangle rendering: **Working** (red triangle on black background)
+
+🔧 **Code Review Completed:**
+- Fixed physical device selection logic (per-device variables)
+- Fixed dangling pointer in swapchain creation
+- Replaced `page_allocator` with `DebugAllocator`
+
+📋 **Next Steps:**
+- Validation layers for debugging
+- ImGui integration
+- Vertex buffers (replace hardcoded shader vertices)
+- Depth buffering
+- Uniform buffers (MVP matrices)
+- Move current Vulkan logic to a zig library
+- Create AppRunner struct created in main
