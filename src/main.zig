@@ -744,6 +744,80 @@ pub fn main() !void {
 
     std.debug.print("Created {} framebuffers\n", .{swapchain_image_count});
 
+    // Command pool and command buffers
+    const CreateCommandPoolFn = *const fn (
+        c.VkDevice,
+        [*c]const c.VkCommandPoolCreateInfo,
+        ?*const c.VkAllocationCallbacks,
+        *c.VkCommandPool,
+    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+
+    const DestroyCommandPoolFn = *const fn (
+        c.VkDevice,
+        c.VkCommandPool,
+        ?*const c.VkAllocationCallbacks,
+    ) callconv(std.builtin.CallingConvention.c) void;
+
+    const AllocateCommandBuffersFn = *const fn (
+        c.VkDevice,
+        [*c]const c.VkCommandBufferAllocateInfo,
+        [*]c.VkCommandBuffer,
+    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+
+    const FreeCommandBuffersFn = *const fn (
+        c.VkDevice,
+        c.VkCommandPool,
+        u32,
+        [*]const c.VkCommandBuffer,
+    ) callconv(std.builtin.CallingConvention.c) void;
+
+    const vkCreateCommandPool: CreateCommandPoolFn =
+        loadVulkanFunc(CreateCommandPoolFn, instance, "vkCreateCommandPool");
+
+    const vkDestroyCommandPool: DestroyCommandPoolFn =
+        loadVulkanFunc(DestroyCommandPoolFn, instance, "vkDestroyCommandPool");
+
+    const vkAllocateCommandBuffers: AllocateCommandBuffersFn =
+        loadVulkanFunc(AllocateCommandBuffersFn, instance, "vkAllocateCommandBuffers");
+
+    const vkFreeCommandBuffers: FreeCommandBuffersFn =
+        loadVulkanFunc(FreeCommandBuffersFn, instance, "vkFreeCommandBuffers");
+
+    // Create command pool
+    const command_pool_info = c.VkCommandPoolCreateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .queueFamilyIndex = graphics_family,
+        .flags = c.VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+    };
+
+    var command_pool: c.VkCommandPool = undefined;
+    if (vkCreateCommandPool(device, &command_pool_info, null, &command_pool) != c.VK_SUCCESS) {
+        std.debug.print("Failed to create command pool\n", .{});
+        return error.CommandPoolCreationFailed;
+    }
+    defer vkDestroyCommandPool(device, command_pool, null);
+
+    // Allocate command buffers (one per framebuffer)
+    const command_buffers = try allocator.alloc(c.VkCommandBuffer, swapchain_image_count);
+    defer {
+        vkFreeCommandBuffers(device, command_pool, swapchain_image_count, command_buffers.ptr);
+        allocator.free(command_buffers);
+    }
+
+    const cmd_alloc_info = c.VkCommandBufferAllocateInfo{
+        .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+        .commandPool = command_pool,
+        .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .commandBufferCount = swapchain_image_count,
+    };
+
+    if (vkAllocateCommandBuffers(device, &cmd_alloc_info, command_buffers.ptr) != c.VK_SUCCESS) {
+        std.debug.print("Failed to allocate command buffers\n", .{});
+        return error.CommandBufferAllocationFailed;
+    }
+
+    std.debug.print("Allocated {} command buffers\n", .{swapchain_image_count});
+
     // Main loop
     while (c.glfwWindowShouldClose(window) == 0) {
         c.glfwPollEvents();
