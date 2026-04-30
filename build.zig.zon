@@ -8,6 +8,23 @@
             .url = "git+https://github.com/Snektron/vulkan-zig?ref=master#5234ae68d1ac143b3ebd1a6e2e40aaa0ef7693c7",
             .hash = "vulkan-0.0.0-r7Ytx7t9AwBjKG7tnhReEVo0P2fvstTc8G_0qF8iog_V",
         },
+        .@"imgui-master" = .{
+            .url = "git+https://github.com/ocornut/imgui?ref=v1.92.7#dac07199cfd761113d966eb8ad739254e10df2fe",
+            .hash = "N-V-__8AAJYGdgBRpnbvCM6TYAXaF3SAnIHIShxHtrL4uhCU",
+        },
+        .@"imgui-docking" = .{
+            .url = "git+https://github.com/ocornut/imgui?ref=v1.92.7-docking#b1bcb12a624af7509894c8e77dd47416997777fa",
+            .hash = "N-V-__8AAPaAgABZhe_qrsumV412WbnTGsh4IKVTRYSF_jCc",
+            .branch = "docking",
+        },
+        .dcimgui = .{
+            .url = "git+https://github.com/dearimgui/dear_bindings#05f6a235c2d1963b17d98730b6a9d09f705e001c",
+            .hash = "N-V-__8AAFMfCQDc_SkDHo7VP9rsVxjv_n3w8DkpXs_mmUjB",
+        },
+        .glfw_zig = .{
+            .url = "git+https://github.com/tiawl/glfw.zig?ref=toolbox-2.0.2#291e4e1d26089530a3b8031fab07bc618e91f701",
+            .hash = "glfw_zig-1.0.0-NrvYoyvRGQDgKTTvaAaJLZWQsL6AL5F8jGsBla2V275Y",
+        },
     },
     .paths = .{
         "build.zig",

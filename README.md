@@ -1,15 +1,29 @@
 # VK Zig Engine
 
-A Vulkan engine built with Zig, using the [vulkan-zig](https://github.com/Snektron/vulkan-zig) bindings.
+A Vulkan engine built with Zig, using the [vulkan-zig](https://github.com/Snektron/vulkan-zig) bindings and GLFW for windowing.
 
 ## Requirements
 
 - Zig 0.16.0 or later
-- Vulkan SDK (for development)
+- [GLFW](https://www.glfw.org/) (included via Zig package)
+- Vulkan SDK or MoltenVK (for macOS)
+
+## macOS Setup
+
+Install MoltenVK (Vulkan implementation over Metal):
+```bash
+brew install molten-vk
+```
+
+Set the Vulkan ICD path:
+```bash
+export VK_ICD_FILENAMES=/usr/local/share/vulkan/icd.d/MoltenVK_icd.json
+```
 
 ## Dependencies
 
 - [vulkan-zig](https://github.com/Snektron/vulkan-zig) - Zig bindings for Vulkan
+- [glfw.zig](https://github.com/tiawl/glfw.zig) - GLFW library for Zig
 
 ## Building
 
@@ -34,7 +48,9 @@ zig build test
 ```
 ├── src/
 │   ├── root.zig        # Library module root
-│   └── main.zig        # Executable entry point
+│   ├── main.zig        # Executable entry point
+│   └── c/
+│       └── glfw.h      # C header for GLFW translation
 ├── registry/
 │   └── vk.xml          # Vulkan registry (used by vulkan-zig)
 ├── build.zig           # Build configuration
@@ -43,8 +59,15 @@ zig build test
 
 ## Usage
 
-Import the vulkan module in your code:
+Import the modules in your code:
 
 ```zig
-const vulkan = @import("vulkan");
+const vk = @import("vulkan");
+const c = @import("c"); // GLFW functions
 ```
+
+## Current Status
+
+- GLFW window opens successfully
+- Vulkan support pending MoltenVK installation (macOS)
+- Next: Create Vulkan instance and surface with GLFW

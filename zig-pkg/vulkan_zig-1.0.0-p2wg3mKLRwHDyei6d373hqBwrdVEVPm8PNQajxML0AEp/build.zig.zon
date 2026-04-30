@@ -1,0 +1,21 @@
+.{
+    .name = .vulkan_zig,
+    .version = "1.0.0",
+    .dependencies = .{
+        .@"Vulkan-Headers" = .{
+            .url = "git+https://github.com/KhronosGroup/Vulkan-Headers?ref=v1.4.349#f6a6f7ab165cedbfa2a7d0c93fe27a2d01ce09c8",
+            .hash = "N-V-__8AAC1ZbAIG2kVq3iPpAWaOlDTQ3MOyOyQQR0o_-9ez",
+        },
+        .toolbox = .{
+            .url = "git+https://github.com/tiawl/toolbox?ref=2.0.2#6eff672e76e867c277183aee1b8c5c1b70ff4915",
+            .hash = "toolbox-2.0.2-kRAu4BibAADKQMUUYyFacpyGgKCWxPyrcxa6ziZQZXwH",
+        },
+    },
+    .minimum_zig_version = "0.16.0",
+    .fingerprint = 0xe457756cde206ca7,
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "vulkan",
+    },
+}

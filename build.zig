@@ -10,13 +10,20 @@ pub fn build(b: *std.Build) void {
     });
     const vulkan_module = vulkan_dep.module("vulkan-zig");
 
-    const mod = b.addModule("vk_zig_engine", .{
-        .root_source_file = b.path("src/root.zig"),
+    // GLFW dependency and C header translation
+    const glfw_dep = b.dependency("glfw_zig", .{
         .target = target,
-        .imports = &.{
-            .{ .name = "vulkan", .module = vulkan_module },
-        },
+        .optimize = optimize,
     });
+    const glfw_artifact = glfw_dep.artifact("glfw");
+
+    const glfw_c = b.addTranslateC(.{
+        .root_source_file = b.path("src/c/glfw.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    glfw_c.addSystemIncludePath(glfw_artifact.getEmittedIncludeTree());
+    const glfw_c_module = glfw_c.createModule();
 
     const exe = b.addExecutable(.{
         .name = "vk_zig_engine",
@@ -25,11 +32,13 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .imports = &.{
-                .{ .name = "vk_zig_engine", .module = mod },
                 .{ .name = "vulkan", .module = vulkan_module },
+                .{ .name = "c", .module = glfw_c_module },
             },
         }),
     });
+
+    exe.root_module.linkLibrary(glfw_artifact);
 
     b.installArtifact(exe);
 
@@ -42,13 +51,9 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
-    const mod_tests = b.addTest(.{ .root_module = mod });
-    const run_mod_tests = b.addRunArtifact(mod_tests);
-
     const exe_tests = b.addTest(.{ .root_module = exe.root_module });
     const run_exe_tests = b.addRunArtifact(exe_tests);
 
     const test_step = b.step("test", "Run tests");
-    test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
 }
