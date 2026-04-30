@@ -23,6 +23,9 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     glfw_c.addSystemIncludePath(glfw_artifact.getEmittedIncludeTree());
+    // Add MoltenVK/Vulkan headers for GLFW Vulkan function declarations
+    const moltenvk_include = b.path("moltenvk_include");
+    glfw_c.addSystemIncludePath(moltenvk_include);
     const glfw_c_module = glfw_c.createModule();
 
     const exe = b.addExecutable(.{
@@ -39,6 +42,13 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.root_module.linkLibrary(glfw_artifact);
+
+    // macOS: Link MoltenVK for Vulkan support
+    if (target.result.os.tag == .macos) {
+        const brew_lib = b.path("lib_search");
+        exe.root_module.addLibraryPath(brew_lib);
+        exe.root_module.linkSystemLibrary("MoltenVK", .{});
+    }
 
     b.installArtifact(exe);
 

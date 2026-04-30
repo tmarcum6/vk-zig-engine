@@ -6,7 +6,7 @@ A Vulkan engine built with Zig, using the [vulkan-zig](https://github.com/Snektr
 
 - Zig 0.16.0 or later
 - [GLFW](https://www.glfw.org/) (included via Zig package)
-- Vulkan SDK or MoltenVK (for macOS)
+- [MoltenVK](https://vulkan.lunarg.com/) (Vulkan implementation for macOS)
 
 ## macOS Setup
 
@@ -15,9 +15,25 @@ Install MoltenVK (Vulkan implementation over Metal):
 brew install molten-vk
 ```
 
-Set the Vulkan ICD path:
+Create Vulkan ICD configuration:
 ```bash
-export VK_ICD_FILENAMES=/usr/local/share/vulkan/icd.d/MoltenVK_icd.json
+sudo mkdir -p /opt/homebrew/share/vulkan/icd.d
+```
+
+Create `/opt/homebrew/share/vulkan/icd.d/MoltenVK_icd.json`:
+```json
+{
+    "file_format_version": "1.0.0",
+    "ICD": {
+        "library_path": "/opt/homebrew/opt/molten-vk/lib/libMoltenVK.dylib",
+        "api_version": "1.2.0"
+    }
+}
+```
+
+Set environment variable (add to `~/.zshrc` or `~/.bashrc`):
+```bash
+export VK_ICD_FILENAMES=/opt/homebrew/share/vulkan/icd.d/MoltenVK_icd.json
 ```
 
 ## Dependencies
@@ -34,7 +50,7 @@ zig build
 ## Running
 
 ```bash
-zig build run
+VK_ICD_FILENAMES=/opt/homebrew/share/vulkan/icd.d/MoltenVK_icd.json zig build run
 ```
 
 ## Testing
@@ -47,12 +63,13 @@ zig build test
 
 ```
 ├── src/
-│   ├── root.zig        # Library module root
-│   ├── main.zig        # Executable entry point
+│   ├── main.zig        # Main application entry point
 │   └── c/
-│       └── glfw.h      # C header for GLFW translation
+│       └── glfw.h      # C header for GLFW + Vulkan translation
 ├── registry/
 │   └── vk.xml          # Vulkan registry (used by vulkan-zig)
+├── moltenvk_include/    # Symlink to MoltenVK Vulkan headers
+├── lib_search/          # Symlink to Homebrew lib directory
 ├── build.zig           # Build configuration
 └── build.zig.zon       # Dependency manifest
 ```
@@ -69,5 +86,6 @@ const c = @import("c"); // GLFW functions
 ## Current Status
 
 - GLFW window opens successfully
-- Vulkan support pending MoltenVK installation (macOS)
-- Next: Create Vulkan instance and surface with GLFW
+- Vulkan instance creation: **Working**
+- Vulkan surface creation: **Working**
+- Next: Set up Vulkan device, swapchain, and rendering pipeline
