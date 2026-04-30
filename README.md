@@ -50,7 +50,7 @@ zig build
 ## Running
 
 ```bash
-VK_ICD_FILENAMES=/opt/homebrew/share/vulkan/icd.d/MoltenVK_icd.json zig build run
+zig build run
 ```
 
 ## Testing
@@ -89,3 +89,4 @@ const c = @import("c"); // GLFW functions
 - Vulkan instance creation: **Working**
 - Vulkan surface creation: **Working**
 - Next: Set up Vulkan device, swapchain, and rendering pipeline
+- Later: imgui
