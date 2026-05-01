@@ -2,6 +2,8 @@
 
 A Vulkan engine built with Zig, using the [vulkan-zig](https://github.com/Snektron/vulkan-zig) bindings and GLFW for windowing.
 
+![Triangle](triangle.png)
+
 ## Requirements
 
 - Zig 0.16.0 or later
