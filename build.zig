@@ -4,12 +4,6 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const vulkan_dep = b.dependency("vulkan", .{
-        .target = target,
-        .registry = b.path("registry/vk.xml"),
-    });
-    const vulkan_module = vulkan_dep.module("vulkan-zig");
-
     // GLFW dependency and C header translation
     const glfw_dep = b.dependency("glfw_zig", .{
         .target = target,
@@ -52,7 +46,6 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .imports = &.{
-                .{ .name = "vulkan", .module = vulkan_module },
                 .{ .name = "glfw", .module = glfw_c_module },
                 .{ .name = "vulkan_c", .module = vulkan_c_module },
                 .{ .name = "imgui", .module = cimgui_module },

@@ -1,6 +1,6 @@
 # VK Zig Engine
 
-A Vulkan engine built with Zig, using the [vulkan-zig](https://github.com/Snektron/vulkan-zig) bindings and GLFW for windowing.
+A Vulkan engine built with Zig, using GLFW for windowing and MoltenVK for Vulkan support on macOS.
 
 Using and documenting on my personal blog: https://crowsheart.com/
 
@@ -43,8 +43,9 @@ export VK_ICD_FILENAMES=/opt/homebrew/share/vulkan/icd.d/MoltenVK_icd.json
 
 ## Dependencies
 
-- [vulkan-zig](https://github.com/Snektron/vulkan-zig) - Zig bindings for Vulkan
-- [glfw.zig](https://github.com/tiawl/glfw.zig) - GLFW library for Zig
+- [glfw.zig](https://github.com/tiawl/glfw.zig) - GLFW library for Zig (includes C header translation)
+- [cimgui](https://github.com/floooh/cimgui) - C bindings for ImGui (docking branch)
+- MoltenVK Vulkan headers - Used via `translateC` for Vulkan C bindings (`vulkan_c` module)
 
 ## Building
 
@@ -68,15 +69,20 @@ zig build test
 
 ```
 ├── src/
-│   ├── main.zig        # Main application entry point
-│   └── c/
-│       └── glfw.h      # C header for GLFW + Vulkan translation
-├── registry/
-│   └── vk.xml          # Vulkan registry (used by vulkan-zig)
-├── moltenvk_include/    # Symlink to MoltenVK Vulkan headers
-├── lib_search/          # Symlink to Homebrew lib directory
-├── build.zig           # Build configuration
-└── build.zig.zon       # Dependency manifest
+│   ├── main.zig              # Main application entry point
+│   ├── headers/
+│   │   ├── glfw.h            # C header for GLFW translation
+│   │   └── vulkan.h          # C header for Vulkan translation (from MoltenVK)
+│   ├── shaders/
+│   │   ├── triangle.vert     # Vertex shader (GLSL)
+│   │   ├── triangle.frag     # Fragment shader (GLSL)
+│   │   ├── triangle.vert.spv # Compiled SPIR-V
+│   │   └── triangle.frag.spv # Compiled SPIR-V
+│   └── imgui_impl/           # ImGui implementation headers (future use)
+├── moltenvk_include/          # Symlink to MoltenVK Vulkan headers
+├── lib_search/               # Symlink to Homebrew lib directory
+├── build.zig                 # Build configuration
+└── build.zig.zon             # Dependency manifest
 ```
 
 ## Usage
@@ -84,8 +90,9 @@ zig build test
 Import the modules in your code:
 
 ```zig
-const vk = @import("vulkan");
-const c = @import("c"); // GLFW functions
+const glfw = @import("glfw");         // GLFW functions
+const vulkan_c = @import("vulkan_c"); // Vulkan C bindings (Vk* types, functions)
+const imgui = @import("imgui");       // ImGui C bindings (future use)
 ```
 
 ## Current Status
@@ -111,13 +118,15 @@ const c = @import("c"); // GLFW functions
 - Fixed physical device selection logic (per-device variables)
 - Fixed dangling pointer in swapchain creation
 - Replaced `page_allocator` with `DebugAllocator`
+- Removed unused vulkan-zig dependency (now using C headers via `translateC`)
+- Removed unused `src/c/` directory
+- Removed unused `registry/` directory
 
 📋 **Next Steps:**
-- Figure out bindings because Vulkan is coming from GLFW currently
 - Validation layers for debugging
-- ImGui integration
+- ImGui integration (overlay)
 - Vertex buffers (replace hardcoded shader vertices)
 - Depth buffering
 - Uniform buffers (MVP matrices)
-- Move current Vulkan logic to a zig library
-- Create AppRunner struct created in main
+- Refactor Vulkan logic into separate modules
+- Create AppRunner/render loop abstraction
