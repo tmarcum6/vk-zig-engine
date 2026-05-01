@@ -1,9 +1,15 @@
 const std = @import("std");
-const c = @import("c");
+const glfw = @import("glfw");
+const vulkan_c = @import("vulkan_c");
+const imgui = @import("imgui");
+
+// GLFW Vulkan functions - declared manually to use vulkan_c types
+extern fn glfwGetInstanceProcAddress(instance: vulkan_c.VkInstance, procname: [*c]const u8) ?*const anyopaque;
+extern fn glfwCreateWindowSurface(instance: vulkan_c.VkInstance, window: ?*anyopaque, allocator: ?*const anyopaque, surface: *vulkan_c.VkSurfaceKHR) vulkan_c.VkResult;
 
 // Vulkan function loader using GLFW's vkGetInstanceProcAddress
-fn loadVulkanFunc(comptime T: type, instance: c.VkInstance, name: [*c]const u8) T {
-    const func = c.glfwGetInstanceProcAddress(instance, name);
+fn loadVulkanFunc(comptime T: type, instance: vulkan_c.VkInstance, name: [*c]const u8) T {
+    const func = glfwGetInstanceProcAddress(instance, name);
     return @ptrCast(@alignCast(func));
 }
 
@@ -13,46 +19,46 @@ pub fn main() !void {
     defer _ = gpa.deinit();
 
     // Initialize GLFW
-    if (c.glfwInit() == 0) {
+    if (glfw.glfwInit() == 0) {
         std.debug.print("Failed to initialize GLFW\n", .{});
         return error.GlfwInitFailed;
     }
-    defer c.glfwTerminate();
+    defer glfw.glfwTerminate();
 
     // Check Vulkan support
-    if (c.glfwVulkanSupported() == 0) {
+    if (glfw.glfwVulkanSupported() == 0) {
         std.debug.print("Vulkan not supported by GLFW\n", .{});
         return error.VulkanNotSupported;
     }
 
     // Window hints for Vulkan (no OpenGL context)
-    c.glfwWindowHint(c.GLFW_CLIENT_API, c.GLFW_NO_API);
+    glfw.glfwWindowHint(glfw.GLFW_CLIENT_API, glfw.GLFW_NO_API);
 
     // Create window
-    const window = c.glfwCreateWindow(800, 600, "VK Zig Engine", null, null) orelse {
+    const window = glfw.glfwCreateWindow(800, 600, "VK Zig Engine", null, null) orelse {
         std.debug.print("Failed to create window\n", .{});
         return error.WindowCreationFailed;
     };
-    defer c.glfwDestroyWindow(window);
+    defer glfw.glfwDestroyWindow(window);
 
     // Get required Vulkan instance extensions from GLFW
     var ext_count: u32 = 0;
-    const extensions = c.glfwGetRequiredInstanceExtensions(&ext_count);
+    const extensions = glfw.glfwGetRequiredInstanceExtensions(&ext_count);
     std.debug.print("Required extensions count: {}\n", .{ext_count});
     for (extensions[0..ext_count]) |ext| {
         std.debug.print("  Extension: {s}\n", .{std.mem.span(ext)});
     }
 
     // Create Vulkan instance
-    const app_info = c.VkApplicationInfo{
-        .sType = c.VK_STRUCTURE_TYPE_APPLICATION_INFO,
+    const app_info = vulkan_c.VkApplicationInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_APPLICATION_INFO,
         .pApplicationName = "VK Zig Engine",
         .applicationVersion = (@as(u32, 1) << 22) | (@as(u32, 0) << 12),
         .apiVersion = (@as(u32, 1) << 22) | (@as(u32, 0) << 12), // Vulkan 1.0
     };
 
-    const instance_create_info = c.VkInstanceCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+    const instance_create_info = vulkan_c.VkInstanceCreateInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
         .pApplicationInfo = &app_info,
         .enabledExtensionCount = @intCast(ext_count),
         .ppEnabledExtensionNames = extensions,
@@ -60,39 +66,39 @@ pub fn main() !void {
 
     // Load vkCreateInstance function
     const CreateInstanceFn = *const fn (
-        [*c]const c.VkInstanceCreateInfo,
-        ?*const c.VkAllocationCallbacks,
-        *c.VkInstance,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        [*c]const vulkan_c.VkInstanceCreateInfo,
+        ?*const vulkan_c.VkAllocationCallbacks,
+        *vulkan_c.VkInstance,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const vkCreateInstance: CreateInstanceFn = loadVulkanFunc(CreateInstanceFn, null, "vkCreateInstance");
 
-    var instance: c.VkInstance = undefined;
-    if (vkCreateInstance(&instance_create_info, null, &instance) != c.VK_SUCCESS) {
+    var instance: vulkan_c.VkInstance = undefined;
+    if (vkCreateInstance(&instance_create_info, null, &instance) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to create Vulkan instance\n", .{});
         return error.InstanceFailed;
     }
     defer {
-        const DestroyInstanceFn = *const fn (c.VkInstance, ?*const c.VkAllocationCallbacks) callconv(std.builtin.CallingConvention.c) void;
+        const DestroyInstanceFn = *const fn (vulkan_c.VkInstance, ?*const vulkan_c.VkAllocationCallbacks) callconv(std.builtin.CallingConvention.c) void;
         const vkDestroyInstance: DestroyInstanceFn =
             loadVulkanFunc(DestroyInstanceFn, instance, "vkDestroyInstance");
         vkDestroyInstance(instance, null);
     }
 
     // Create Vulkan surface using GLFW
-    var surface: c.VkSurfaceKHR = undefined;
-    const surface_result = c.glfwCreateWindowSurface(
+    var surface: vulkan_c.VkSurfaceKHR = undefined;
+    const surface_result = glfwCreateWindowSurface(
         instance,
         window,
         null,
         &surface,
     );
-    if (surface_result != c.VK_SUCCESS) {
+    if (surface_result != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to create Vulkan surface: {}\n", .{surface_result});
         return error.SurfaceFailed;
     }
     defer {
-        const DestroySurfaceFn = *const fn (c.VkInstance, c.VkSurfaceKHR, ?*const c.VkAllocationCallbacks) callconv(std.builtin.CallingConvention.c) void;
+        const DestroySurfaceFn = *const fn (vulkan_c.VkInstance, vulkan_c.VkSurfaceKHR, ?*const vulkan_c.VkAllocationCallbacks) callconv(std.builtin.CallingConvention.c) void;
         const vkDestroySurfaceKHR: DestroySurfaceFn =
             loadVulkanFunc(DestroySurfaceFn, instance, "vkDestroySurfaceKHR");
         vkDestroySurfaceKHR(instance, surface, null);
@@ -102,23 +108,23 @@ pub fn main() !void {
 
     // Physical device selection
     const EnumeratePhysicalDevicesFn = *const fn (
-        c.VkInstance,
+        vulkan_c.VkInstance,
         *u32,
-        ?[*]c.VkPhysicalDevice,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        ?[*]vulkan_c.VkPhysicalDevice,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const GetPhysicalDeviceQueueFamilyPropertiesFn = *const fn (
-        c.VkPhysicalDevice,
+        vulkan_c.VkPhysicalDevice,
         *u32,
-        ?[*]c.VkQueueFamilyProperties,
+        ?[*]vulkan_c.VkQueueFamilyProperties,
     ) callconv(std.builtin.CallingConvention.c) void;
 
     const GetPhysicalDeviceSurfaceSupportKHRFn = *const fn (
-        c.VkPhysicalDevice,
+        vulkan_c.VkPhysicalDevice,
         u32,
-        c.VkSurfaceKHR,
-        *c.VkBool32,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        vulkan_c.VkSurfaceKHR,
+        *vulkan_c.VkBool32,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const vkEnumeratePhysicalDevices: EnumeratePhysicalDevicesFn =
         loadVulkanFunc(EnumeratePhysicalDevicesFn, instance, "vkEnumeratePhysicalDevices");
@@ -131,7 +137,7 @@ pub fn main() !void {
 
     // Get physical device count
     var device_count: u32 = 0;
-    if (vkEnumeratePhysicalDevices(instance, &device_count, null) != c.VK_SUCCESS) {
+    if (vkEnumeratePhysicalDevices(instance, &device_count, null) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to enumerate physical devices\n", .{});
         return error.EnumerateDevicesFailed;
     }
@@ -142,16 +148,16 @@ pub fn main() !void {
     }
 
     // Allocate and get physical devices
-    const physical_devices = try allocator.alloc(c.VkPhysicalDevice, device_count);
+    const physical_devices = try allocator.alloc(vulkan_c.VkPhysicalDevice, device_count);
     defer allocator.free(physical_devices);
 
-    if (vkEnumeratePhysicalDevices(instance, &device_count, physical_devices.ptr) != c.VK_SUCCESS) {
+    if (vkEnumeratePhysicalDevices(instance, &device_count, physical_devices.ptr) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to get physical devices\n", .{});
         return error.GetDevicesFailed;
     }
 
     // Find suitable physical device
-    var selected_device: c.VkPhysicalDevice = undefined;
+    var selected_device: vulkan_c.VkPhysicalDevice = undefined;
     var graphics_family: u32 = std.math.maxInt(u32);
     var present_family: u32 = std.math.maxInt(u32);
     var device_found = false;
@@ -168,7 +174,7 @@ pub fn main() !void {
         if (queue_family_count == 0) continue;
 
         // Allocate and get queue family properties
-        const queue_families = try allocator.alloc(c.VkQueueFamilyProperties, queue_family_count);
+        const queue_families = try allocator.alloc(vulkan_c.VkQueueFamilyProperties, queue_family_count);
         defer allocator.free(queue_families);
         vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, queue_families.ptr);
 
@@ -177,15 +183,15 @@ pub fn main() !void {
             const family_idx: u32 = @intCast(i);
 
             // Check for graphics support
-            if (props.queueFlags & c.VK_QUEUE_GRAPHICS_BIT != 0) {
+            if (props.queueFlags & vulkan_c.VK_QUEUE_GRAPHICS_BIT != 0) {
                 if (g_family == std.math.maxInt(u32)) {
                     g_family = family_idx;
                 }
             }
 
             // Check for present support
-            var present_support: c.VkBool32 = 0;
-            if (vkGetPhysicalDeviceSurfaceSupportKHR(device, family_idx, surface, &present_support) == c.VK_SUCCESS) {
+            var present_support: vulkan_c.VkBool32 = 0;
+            if (vkGetPhysicalDeviceSurfaceSupportKHR(device, family_idx, surface, &present_support) == vulkan_c.VK_SUCCESS) {
                 if (present_support != 0 and p_family == std.math.maxInt(u32)) {
                     p_family = family_idx;
                 }
@@ -211,29 +217,29 @@ pub fn main() !void {
 
     // Logical device creation
     const CreateDeviceFn = *const fn (
-        c.VkPhysicalDevice,
-        [*c]const c.VkDeviceCreateInfo,
-        ?*const c.VkAllocationCallbacks,
-        *c.VkDevice,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        vulkan_c.VkPhysicalDevice,
+        [*c]const vulkan_c.VkDeviceCreateInfo,
+        ?*const vulkan_c.VkAllocationCallbacks,
+        *vulkan_c.VkDevice,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const GetDeviceQueueFn = *const fn (
-        c.VkDevice,
+        vulkan_c.VkDevice,
         u32,
         u32,
-        *c.VkQueue,
+        *vulkan_c.VkQueue,
     ) callconv(std.builtin.CallingConvention.c) void;
 
     const EnumerateDeviceExtensionPropertiesFn = *const fn (
-        c.VkPhysicalDevice,
+        vulkan_c.VkPhysicalDevice,
         ?[*:0]const u8,
         *u32,
-        ?[*]c.VkExtensionProperties,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        ?[*]vulkan_c.VkExtensionProperties,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const DestroyDeviceFn = *const fn (
-        c.VkDevice,
-        ?*const c.VkAllocationCallbacks,
+        vulkan_c.VkDevice,
+        ?*const vulkan_c.VkAllocationCallbacks,
     ) callconv(std.builtin.CallingConvention.c) void;
 
     const vkCreateDevice: CreateDeviceFn =
@@ -250,15 +256,15 @@ pub fn main() !void {
 
     // Check for swapchain extension support
     var extension_count: u32 = 0;
-    if (vkEnumerateDeviceExtensionProperties(selected_device, null, &extension_count, null) != c.VK_SUCCESS) {
+    if (vkEnumerateDeviceExtensionProperties(selected_device, null, &extension_count, null) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to enumerate device extensions\n", .{});
         return error.EnumerateExtensionsFailed;
     }
 
-    const device_extensions = try allocator.alloc(c.VkExtensionProperties, extension_count);
+    const device_extensions = try allocator.alloc(vulkan_c.VkExtensionProperties, extension_count);
     defer allocator.free(device_extensions);
 
-    if (vkEnumerateDeviceExtensionProperties(selected_device, null, &extension_count, device_extensions.ptr) != c.VK_SUCCESS) {
+    if (vkEnumerateDeviceExtensionProperties(selected_device, null, &extension_count, device_extensions.ptr) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to get device extensions\n", .{});
         return error.GetExtensionsFailed;
     }
@@ -286,19 +292,19 @@ pub fn main() !void {
     const queue_priority: f32 = 1.0;
 
     // Allocate queue create infos
-    const queue_create_infos = try allocator.alloc(c.VkDeviceQueueCreateInfo, queue_count);
+    const queue_create_infos = try allocator.alloc(vulkan_c.VkDeviceQueueCreateInfo, queue_count);
     defer allocator.free(queue_create_infos);
 
-    queue_create_infos[0] = c.VkDeviceQueueCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+    queue_create_infos[0] = vulkan_c.VkDeviceQueueCreateInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
         .queueFamilyIndex = graphics_family,
         .queueCount = 1,
         .pQueuePriorities = &queue_priority,
     };
 
     if (!same_family) {
-        queue_create_infos[1] = c.VkDeviceQueueCreateInfo{
-            .sType = c.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+        queue_create_infos[1] = vulkan_c.VkDeviceQueueCreateInfo{
+            .sType = vulkan_c.VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
             .queueFamilyIndex = present_family,
             .queueCount = 1,
             .pQueuePriorities = &queue_priority,
@@ -308,24 +314,24 @@ pub fn main() !void {
     // Device extensions to enable
     const enabled_extensions = [_][*c]const u8{swapchain_extension ++ "\x00"};
 
-    const device_create_info = c.VkDeviceCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+    const device_create_info = vulkan_c.VkDeviceCreateInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
         .queueCreateInfoCount = @intCast(queue_count),
         .pQueueCreateInfos = &queue_create_infos[0],
         .enabledExtensionCount = 1,
         .ppEnabledExtensionNames = &enabled_extensions[0],
     };
 
-    var device: c.VkDevice = undefined;
-    if (vkCreateDevice(selected_device, &device_create_info, null, &device) != c.VK_SUCCESS) {
+    var device: vulkan_c.VkDevice = undefined;
+    if (vkCreateDevice(selected_device, &device_create_info, null, &device) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to create logical device\n", .{});
         return error.DeviceCreationFailed;
     }
     defer vkDestroyDevice(device, null);
 
     // Get queue handles
-    var graphics_queue: c.VkQueue = undefined;
-    var present_queue: c.VkQueue = undefined;
+    var graphics_queue: vulkan_c.VkQueue = undefined;
+    var present_queue: vulkan_c.VkQueue = undefined;
     vkGetDeviceQueue(device, graphics_family, 0, &graphics_queue);
     vkGetDeviceQueue(device, present_family, 0, &present_queue);
 
@@ -333,56 +339,56 @@ pub fn main() !void {
 
     // Swapchain creation
     const GetPhysicalDeviceSurfaceCapabilitiesKHRFn = *const fn (
-        c.VkPhysicalDevice,
-        c.VkSurfaceKHR,
-        *c.VkSurfaceCapabilitiesKHR,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        vulkan_c.VkPhysicalDevice,
+        vulkan_c.VkSurfaceKHR,
+        *vulkan_c.VkSurfaceCapabilitiesKHR,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const GetPhysicalDeviceSurfaceFormatsKHRFn = *const fn (
-        c.VkPhysicalDevice,
-        c.VkSurfaceKHR,
+        vulkan_c.VkPhysicalDevice,
+        vulkan_c.VkSurfaceKHR,
         *u32,
-        ?[*]c.VkSurfaceFormatKHR,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        ?[*]vulkan_c.VkSurfaceFormatKHR,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const GetPhysicalDeviceSurfacePresentModesKHRFn = *const fn (
-        c.VkPhysicalDevice,
-        c.VkSurfaceKHR,
+        vulkan_c.VkPhysicalDevice,
+        vulkan_c.VkSurfaceKHR,
         *u32,
-        ?[*]c.VkPresentModeKHR,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        ?[*]vulkan_c.VkPresentModeKHR,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const CreateSwapchainKHRFn = *const fn (
-        c.VkDevice,
-        [*c]const c.VkSwapchainCreateInfoKHR,
-        ?*const c.VkAllocationCallbacks,
-        *c.VkSwapchainKHR,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        vulkan_c.VkDevice,
+        [*c]const vulkan_c.VkSwapchainCreateInfoKHR,
+        ?*const vulkan_c.VkAllocationCallbacks,
+        *vulkan_c.VkSwapchainKHR,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const DestroySwapchainKHRFn = *const fn (
-        c.VkDevice,
-        c.VkSwapchainKHR,
-        ?*const c.VkAllocationCallbacks,
+        vulkan_c.VkDevice,
+        vulkan_c.VkSwapchainKHR,
+        ?*const vulkan_c.VkAllocationCallbacks,
     ) callconv(std.builtin.CallingConvention.c) void;
 
     const GetSwapchainImagesKHRFn = *const fn (
-        c.VkDevice,
-        c.VkSwapchainKHR,
+        vulkan_c.VkDevice,
+        vulkan_c.VkSwapchainKHR,
         *u32,
-        ?[*]c.VkImage,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        ?[*]vulkan_c.VkImage,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const CreateImageViewFn = *const fn (
-        c.VkDevice,
-        [*c]const c.VkImageViewCreateInfo,
-        ?*const c.VkAllocationCallbacks,
-        *c.VkImageView,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        vulkan_c.VkDevice,
+        [*c]const vulkan_c.VkImageViewCreateInfo,
+        ?*const vulkan_c.VkAllocationCallbacks,
+        *vulkan_c.VkImageView,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const DestroyImageViewFn = *const fn (
-        c.VkDevice,
-        c.VkImageView,
-        ?*const c.VkAllocationCallbacks,
+        vulkan_c.VkDevice,
+        vulkan_c.VkImageView,
+        ?*const vulkan_c.VkAllocationCallbacks,
     ) callconv(std.builtin.CallingConvention.c) void;
 
     const vkGetPhysicalDeviceSurfaceCapabilitiesKHR: GetPhysicalDeviceSurfaceCapabilitiesKHRFn =
@@ -410,55 +416,55 @@ pub fn main() !void {
         loadVulkanFunc(DestroyImageViewFn, instance, "vkDestroyImageView");
 
     // Query surface capabilities
-    var surface_capabilities: c.VkSurfaceCapabilitiesKHR = undefined;
-    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(selected_device, surface, &surface_capabilities) != c.VK_SUCCESS) {
+    var surface_capabilities: vulkan_c.VkSurfaceCapabilitiesKHR = undefined;
+    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(selected_device, surface, &surface_capabilities) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to get surface capabilities\n", .{});
         return error.SurfaceCapabilitiesFailed;
     }
 
     // Query surface formats
     var format_count: u32 = 0;
-    if (vkGetPhysicalDeviceSurfaceFormatsKHR(selected_device, surface, &format_count, null) != c.VK_SUCCESS) {
+    if (vkGetPhysicalDeviceSurfaceFormatsKHR(selected_device, surface, &format_count, null) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to get surface format count\n", .{});
         return error.SurfaceFormatsFailed;
     }
 
-    const surface_formats = try allocator.alloc(c.VkSurfaceFormatKHR, format_count);
+    const surface_formats = try allocator.alloc(vulkan_c.VkSurfaceFormatKHR, format_count);
     defer allocator.free(surface_formats);
 
-    if (vkGetPhysicalDeviceSurfaceFormatsKHR(selected_device, surface, &format_count, surface_formats.ptr) != c.VK_SUCCESS) {
+    if (vkGetPhysicalDeviceSurfaceFormatsKHR(selected_device, surface, &format_count, surface_formats.ptr) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to get surface formats\n", .{});
         return error.SurfaceFormatsFailed;
     }
 
     // Query present modes
     var present_mode_count: u32 = 0;
-    if (vkGetPhysicalDeviceSurfacePresentModesKHR(selected_device, surface, &present_mode_count, null) != c.VK_SUCCESS) {
+    if (vkGetPhysicalDeviceSurfacePresentModesKHR(selected_device, surface, &present_mode_count, null) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to get present mode count\n", .{});
         return error.PresentModesFailed;
     }
 
-    const present_modes = try allocator.alloc(c.VkPresentModeKHR, present_mode_count);
+    const present_modes = try allocator.alloc(vulkan_c.VkPresentModeKHR, present_mode_count);
     defer allocator.free(present_modes);
 
-    if (vkGetPhysicalDeviceSurfacePresentModesKHR(selected_device, surface, &present_mode_count, present_modes.ptr) != c.VK_SUCCESS) {
+    if (vkGetPhysicalDeviceSurfacePresentModesKHR(selected_device, surface, &present_mode_count, present_modes.ptr) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to get present modes\n", .{});
         return error.PresentModesFailed;
     }
 
     // Choose surface format (prefer SRGB8888 with BGRA or RGBA)
-    var surface_format: c.VkSurfaceFormatKHR = undefined;
-    if (format_count == 1 and surface_formats[0].format == c.VK_FORMAT_UNDEFINED) {
+    var surface_format: vulkan_c.VkSurfaceFormatKHR = undefined;
+    if (format_count == 1 and surface_formats[0].format == vulkan_c.VK_FORMAT_UNDEFINED) {
         // Any format is allowed
-        surface_format = c.VkSurfaceFormatKHR{
-            .format = c.VK_FORMAT_B8G8R8A8_SRGB,
-            .colorSpace = c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
+        surface_format = vulkan_c.VkSurfaceFormatKHR{
+            .format = vulkan_c.VK_FORMAT_B8G8R8A8_SRGB,
+            .colorSpace = vulkan_c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
         };
     } else {
         // Look for SRGB8888
         var found = false;
         for (surface_formats[0..format_count]) |fmt| {
-            if (fmt.format == c.VK_FORMAT_B8G8R8A8_SRGB and fmt.colorSpace == c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+            if (fmt.format == vulkan_c.VK_FORMAT_B8G8R8A8_SRGB and fmt.colorSpace == vulkan_c.VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
                 surface_format = fmt;
                 found = true;
                 break;
@@ -470,20 +476,20 @@ pub fn main() !void {
     }
 
     // Choose present mode (prefer MAILBOX for triple buffering, fallback to FIFO)
-    var present_mode: c.VkPresentModeKHR = c.VK_PRESENT_MODE_FIFO_KHR; // Always supported
+    var present_mode: vulkan_c.VkPresentModeKHR = vulkan_c.VK_PRESENT_MODE_FIFO_KHR; // Always supported
     for (present_modes[0..present_mode_count]) |mode| {
-        if (mode == c.VK_PRESENT_MODE_MAILBOX_KHR) {
+        if (mode == vulkan_c.VK_PRESENT_MODE_MAILBOX_KHR) {
             present_mode = mode;
             break;
         }
     }
 
     // Choose swap extent (swapchain dimensions)
-    var extent: c.VkExtent2D = undefined;
+    var extent: vulkan_c.VkExtent2D = undefined;
     if (surface_capabilities.currentExtent.width != 0xFFFFFFFF) {
         extent = surface_capabilities.currentExtent;
     } else {
-        extent = c.VkExtent2D{
+        extent = vulkan_c.VkExtent2D{
             .width = @min(surface_capabilities.maxImageExtent.width, @max(surface_capabilities.minImageExtent.width, 800)),
             .height = @min(surface_capabilities.maxImageExtent.height, @max(surface_capabilities.minImageExtent.height, 600)),
         };
@@ -496,19 +502,19 @@ pub fn main() !void {
     }
 
     // Create swapchain
-    const swapchain_info = c.VkSwapchainCreateInfoKHR{
-        .sType = c.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+    const swapchain_info = vulkan_c.VkSwapchainCreateInfoKHR{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
         .surface = surface,
         .minImageCount = image_count,
         .imageFormat = surface_format.format,
         .imageColorSpace = surface_format.colorSpace,
         .imageExtent = extent,
         .imageArrayLayers = 1,
-        .imageUsage = c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+        .imageUsage = vulkan_c.VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
         .preTransform = surface_capabilities.currentTransform,
-        .compositeAlpha = c.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+        .compositeAlpha = vulkan_c.VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
         .presentMode = present_mode,
-        .clipped = c.VK_TRUE,
+        .clipped = vulkan_c.VK_TRUE,
         .oldSwapchain = null,
     };
 
@@ -517,17 +523,17 @@ pub fn main() !void {
     var queue_family_indices: [2]u32 = undefined;
 
     if (same_family) {
-        swapchain_info_ptr.imageSharingMode = c.VK_SHARING_MODE_EXCLUSIVE;
+        swapchain_info_ptr.imageSharingMode = vulkan_c.VK_SHARING_MODE_EXCLUSIVE;
     } else {
-        swapchain_info_ptr.imageSharingMode = c.VK_SHARING_MODE_CONCURRENT;
+        swapchain_info_ptr.imageSharingMode = vulkan_c.VK_SHARING_MODE_CONCURRENT;
         swapchain_info_ptr.queueFamilyIndexCount = 2;
         queue_family_indices[0] = graphics_family;
         queue_family_indices[1] = present_family;
         swapchain_info_ptr.pQueueFamilyIndices = &queue_family_indices;
     }
 
-    var swapchain: c.VkSwapchainKHR = undefined;
-    if (vkCreateSwapchainKHR(device, &swapchain_info_ptr, null, &swapchain) != c.VK_SUCCESS) {
+    var swapchain: vulkan_c.VkSwapchainKHR = undefined;
+    if (vkCreateSwapchainKHR(device, &swapchain_info_ptr, null, &swapchain) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to create swapchain\n", .{});
         return error.SwapchainCreationFailed;
     }
@@ -539,21 +545,21 @@ pub fn main() !void {
 
     // Get swapchain images
     var swapchain_image_count: u32 = 0;
-    if (vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, null) != c.VK_SUCCESS) {
+    if (vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, null) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to get swapchain image count\n", .{});
         return error.SwapchainImagesFailed;
     }
 
-    const swapchain_images = try allocator.alloc(c.VkImage, swapchain_image_count);
+    const swapchain_images = try allocator.alloc(vulkan_c.VkImage, swapchain_image_count);
     defer allocator.free(swapchain_images);
 
-    if (vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, swapchain_images.ptr) != c.VK_SUCCESS) {
+    if (vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, swapchain_images.ptr) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to get swapchain images\n", .{});
         return error.SwapchainImagesFailed;
     }
 
     // Create image views for each swapchain image
-    const swapchain_image_views = try allocator.alloc(c.VkImageView, swapchain_image_count);
+    const swapchain_image_views = try allocator.alloc(vulkan_c.VkImageView, swapchain_image_count);
     defer {
         for (swapchain_image_views[0..swapchain_image_count]) |view| {
             vkDestroyImageView(device, view, null);
@@ -562,13 +568,13 @@ pub fn main() !void {
     }
 
     for (swapchain_images[0..swapchain_image_count], 0..) |img, i| {
-        const view_info = c.VkImageViewCreateInfo{
-            .sType = c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+        const view_info = vulkan_c.VkImageViewCreateInfo{
+            .sType = vulkan_c.VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
             .image = img,
-            .viewType = c.VK_IMAGE_VIEW_TYPE_2D,
+            .viewType = vulkan_c.VK_IMAGE_VIEW_TYPE_2D,
             .format = surface_format.format,
-            .subresourceRange = c.VkImageSubresourceRange{
-                .aspectMask = c.VK_IMAGE_ASPECT_COLOR_BIT,
+            .subresourceRange = vulkan_c.VkImageSubresourceRange{
+                .aspectMask = vulkan_c.VK_IMAGE_ASPECT_COLOR_BIT,
                 .baseMipLevel = 0,
                 .levelCount = 1,
                 .baseArrayLayer = 0,
@@ -576,7 +582,7 @@ pub fn main() !void {
             },
         };
 
-        if (vkCreateImageView(device, &view_info, null, &swapchain_image_views[i]) != c.VK_SUCCESS) {
+        if (vkCreateImageView(device, &view_info, null, &swapchain_image_views[i]) != vulkan_c.VK_SUCCESS) {
             std.debug.print("Failed to create image view {}\n", .{i});
             return error.ImageViewCreationFailed;
         }
@@ -586,17 +592,17 @@ pub fn main() !void {
 
     // Shader modules creation
     const DestroyShaderModuleFn = *const fn (
-        c.VkDevice,
-        c.VkShaderModule,
-        ?*const c.VkAllocationCallbacks,
+        vulkan_c.VkDevice,
+        vulkan_c.VkShaderModule,
+        ?*const vulkan_c.VkAllocationCallbacks,
     ) callconv(std.builtin.CallingConvention.c) void;
 
     const CreateShaderModuleFn = *const fn (
-        c.VkDevice,
-        [*c]const c.VkShaderModuleCreateInfo,
-        ?*const c.VkAllocationCallbacks,
-        *c.VkShaderModule,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        vulkan_c.VkDevice,
+        [*c]const vulkan_c.VkShaderModuleCreateInfo,
+        ?*const vulkan_c.VkAllocationCallbacks,
+        *vulkan_c.VkShaderModule,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const vkCreateShaderModule: CreateShaderModuleFn =
         loadVulkanFunc(CreateShaderModuleFn, instance, "vkCreateShaderModule");
@@ -609,28 +615,28 @@ pub fn main() !void {
     const frag_spirv = @embedFile("shaders/triangle.frag.spv");
 
     // Create vertex shader module
-    const vert_info = c.VkShaderModuleCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+    const vert_info = vulkan_c.VkShaderModuleCreateInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
         .codeSize = vert_spirv.len,
         .pCode = @ptrCast(@alignCast(vert_spirv)),
     };
 
-    var vert_shader_module: c.VkShaderModule = undefined;
-    if (vkCreateShaderModule(device, &vert_info, null, &vert_shader_module) != c.VK_SUCCESS) {
+    var vert_shader_module: vulkan_c.VkShaderModule = undefined;
+    if (vkCreateShaderModule(device, &vert_info, null, &vert_shader_module) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to create vertex shader module\n", .{});
         return error.VertexShaderModuleFailed;
     }
     defer vkDestroyShaderModule(device, vert_shader_module, null);
 
     // Create fragment shader module
-    const frag_info = c.VkShaderModuleCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+    const frag_info = vulkan_c.VkShaderModuleCreateInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
         .codeSize = frag_spirv.len,
         .pCode = @ptrCast(@alignCast(frag_spirv)),
     };
 
-    var frag_shader_module: c.VkShaderModule = undefined;
-    if (vkCreateShaderModule(device, &frag_info, null, &frag_shader_module) != c.VK_SUCCESS) {
+    var frag_shader_module: vulkan_c.VkShaderModule = undefined;
+    if (vkCreateShaderModule(device, &frag_info, null, &frag_shader_module) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to create fragment shader module\n", .{});
         return error.FragmentShaderModuleFailed;
     }
@@ -640,16 +646,16 @@ pub fn main() !void {
 
     // Render pass creation
     const CreateRenderPassFn = *const fn (
-        c.VkDevice,
-        [*c]const c.VkRenderPassCreateInfo,
-        ?*const c.VkAllocationCallbacks,
-        *c.VkRenderPass,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        vulkan_c.VkDevice,
+        [*c]const vulkan_c.VkRenderPassCreateInfo,
+        ?*const vulkan_c.VkAllocationCallbacks,
+        *vulkan_c.VkRenderPass,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const DestroyRenderPassFn = *const fn (
-        c.VkDevice,
-        c.VkRenderPass,
-        ?*const c.VkAllocationCallbacks,
+        vulkan_c.VkDevice,
+        vulkan_c.VkRenderPass,
+        ?*const vulkan_c.VkAllocationCallbacks,
     ) callconv(std.builtin.CallingConvention.c) void;
 
     const vkCreateRenderPass: CreateRenderPassFn =
@@ -659,39 +665,39 @@ pub fn main() !void {
         loadVulkanFunc(DestroyRenderPassFn, instance, "vkDestroyRenderPass");
 
     // Color attachment
-    const color_attachment = c.VkAttachmentDescription{
+    const color_attachment = vulkan_c.VkAttachmentDescription{
         .format = surface_format.format,
-        .samples = c.VK_SAMPLE_COUNT_1_BIT,
-        .loadOp = c.VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp = c.VK_ATTACHMENT_STORE_OP_STORE,
-        .stencilLoadOp = c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-        .stencilStoreOp = c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .initialLayout = c.VK_IMAGE_LAYOUT_UNDEFINED,
-        .finalLayout = c.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+        .samples = vulkan_c.VK_SAMPLE_COUNT_1_BIT,
+        .loadOp = vulkan_c.VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp = vulkan_c.VK_ATTACHMENT_STORE_OP_STORE,
+        .stencilLoadOp = vulkan_c.VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+        .stencilStoreOp = vulkan_c.VK_ATTACHMENT_STORE_OP_DONT_CARE,
+        .initialLayout = vulkan_c.VK_IMAGE_LAYOUT_UNDEFINED,
+        .finalLayout = vulkan_c.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
     };
 
-    const color_attachment_ref = c.VkAttachmentReference{
+    const color_attachment_ref = vulkan_c.VkAttachmentReference{
         .attachment = 0,
-        .layout = c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .layout = vulkan_c.VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
     };
 
-    const subpass = c.VkSubpassDescription{
-        .pipelineBindPoint = c.VK_PIPELINE_BIND_POINT_GRAPHICS,
+    const subpass = vulkan_c.VkSubpassDescription{
+        .pipelineBindPoint = vulkan_c.VK_PIPELINE_BIND_POINT_GRAPHICS,
         .colorAttachmentCount = 1,
         .pColorAttachments = &color_attachment_ref,
     };
 
-    const dependency = c.VkSubpassDependency{
-        .srcSubpass = c.VK_SUBPASS_EXTERNAL,
+    const dependency = vulkan_c.VkSubpassDependency{
+        .srcSubpass = vulkan_c.VK_SUBPASS_EXTERNAL,
         .dstSubpass = 0,
-        .srcStageMask = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .srcStageMask = vulkan_c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
         .srcAccessMask = 0,
-        .dstStageMask = c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-        .dstAccessMask = c.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+        .dstStageMask = vulkan_c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .dstAccessMask = vulkan_c.VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
     };
 
-    const render_pass_info = c.VkRenderPassCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+    const render_pass_info = vulkan_c.VkRenderPassCreateInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
         .attachmentCount = 1,
         .pAttachments = &color_attachment,
         .subpassCount = 1,
@@ -700,8 +706,8 @@ pub fn main() !void {
         .pDependencies = &dependency,
     };
 
-    var render_pass: c.VkRenderPass = undefined;
-    if (vkCreateRenderPass(device, &render_pass_info, null, &render_pass) != c.VK_SUCCESS) {
+    var render_pass: vulkan_c.VkRenderPass = undefined;
+    if (vkCreateRenderPass(device, &render_pass_info, null, &render_pass) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to create render pass\n", .{});
         return error.RenderPassCreationFailed;
     }
@@ -711,16 +717,16 @@ pub fn main() !void {
 
     // Framebuffer creation
     const CreateFramebufferFn = *const fn (
-        c.VkDevice,
-        [*c]const c.VkFramebufferCreateInfo,
-        ?*const c.VkAllocationCallbacks,
-        *c.VkFramebuffer,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        vulkan_c.VkDevice,
+        [*c]const vulkan_c.VkFramebufferCreateInfo,
+        ?*const vulkan_c.VkAllocationCallbacks,
+        *vulkan_c.VkFramebuffer,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const DestroyFramebufferFn = *const fn (
-        c.VkDevice,
-        c.VkFramebuffer,
-        ?*const c.VkAllocationCallbacks,
+        vulkan_c.VkDevice,
+        vulkan_c.VkFramebuffer,
+        ?*const vulkan_c.VkAllocationCallbacks,
     ) callconv(std.builtin.CallingConvention.c) void;
 
     const vkCreateFramebuffer: CreateFramebufferFn =
@@ -729,7 +735,7 @@ pub fn main() !void {
     const vkDestroyFramebuffer: DestroyFramebufferFn =
         loadVulkanFunc(DestroyFramebufferFn, instance, "vkDestroyFramebuffer");
 
-    const framebuffers = try allocator.alloc(c.VkFramebuffer, swapchain_image_count);
+    const framebuffers = try allocator.alloc(vulkan_c.VkFramebuffer, swapchain_image_count);
     defer {
         for (framebuffers[0..swapchain_image_count]) |fb| {
             vkDestroyFramebuffer(device, fb, null);
@@ -738,8 +744,8 @@ pub fn main() !void {
     }
 
     for (swapchain_image_views[0..swapchain_image_count], 0..) |view, i| {
-        const framebuffer_info = c.VkFramebufferCreateInfo{
-            .sType = c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+        const framebuffer_info = vulkan_c.VkFramebufferCreateInfo{
+            .sType = vulkan_c.VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
             .renderPass = render_pass,
             .attachmentCount = 1,
             .pAttachments = &view,
@@ -748,7 +754,7 @@ pub fn main() !void {
             .layers = 1,
         };
 
-        if (vkCreateFramebuffer(device, &framebuffer_info, null, &framebuffers[i]) != c.VK_SUCCESS) {
+        if (vkCreateFramebuffer(device, &framebuffer_info, null, &framebuffers[i]) != vulkan_c.VK_SUCCESS) {
             std.debug.print("Failed to create framebuffer {}\n", .{i});
             return error.FramebufferCreationFailed;
         }
@@ -758,29 +764,29 @@ pub fn main() !void {
 
     // Command pool and command buffers
     const CreateCommandPoolFn = *const fn (
-        c.VkDevice,
-        [*c]const c.VkCommandPoolCreateInfo,
-        ?*const c.VkAllocationCallbacks,
-        *c.VkCommandPool,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        vulkan_c.VkDevice,
+        [*c]const vulkan_c.VkCommandPoolCreateInfo,
+        ?*const vulkan_c.VkAllocationCallbacks,
+        *vulkan_c.VkCommandPool,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const DestroyCommandPoolFn = *const fn (
-        c.VkDevice,
-        c.VkCommandPool,
-        ?*const c.VkAllocationCallbacks,
+        vulkan_c.VkDevice,
+        vulkan_c.VkCommandPool,
+        ?*const vulkan_c.VkAllocationCallbacks,
     ) callconv(std.builtin.CallingConvention.c) void;
 
     const AllocateCommandBuffersFn = *const fn (
-        c.VkDevice,
-        [*c]const c.VkCommandBufferAllocateInfo,
-        [*]c.VkCommandBuffer,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        vulkan_c.VkDevice,
+        [*c]const vulkan_c.VkCommandBufferAllocateInfo,
+        [*]vulkan_c.VkCommandBuffer,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const FreeCommandBuffersFn = *const fn (
-        c.VkDevice,
-        c.VkCommandPool,
+        vulkan_c.VkDevice,
+        vulkan_c.VkCommandPool,
         u32,
-        [*]const c.VkCommandBuffer,
+        [*]const vulkan_c.VkCommandBuffer,
     ) callconv(std.builtin.CallingConvention.c) void;
 
     const vkCreateCommandPool: CreateCommandPoolFn =
@@ -796,34 +802,34 @@ pub fn main() !void {
         loadVulkanFunc(FreeCommandBuffersFn, instance, "vkFreeCommandBuffers");
 
     // Create command pool
-    const command_pool_info = c.VkCommandPoolCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+    const command_pool_info = vulkan_c.VkCommandPoolCreateInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
         .queueFamilyIndex = graphics_family,
-        .flags = c.VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+        .flags = vulkan_c.VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
     };
 
-    var command_pool: c.VkCommandPool = undefined;
-    if (vkCreateCommandPool(device, &command_pool_info, null, &command_pool) != c.VK_SUCCESS) {
+    var command_pool: vulkan_c.VkCommandPool = undefined;
+    if (vkCreateCommandPool(device, &command_pool_info, null, &command_pool) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to create command pool\n", .{});
         return error.CommandPoolCreationFailed;
     }
     defer vkDestroyCommandPool(device, command_pool, null);
 
     // Allocate command buffers (one per framebuffer)
-    const command_buffers = try allocator.alloc(c.VkCommandBuffer, swapchain_image_count);
+    const command_buffers = try allocator.alloc(vulkan_c.VkCommandBuffer, swapchain_image_count);
     defer {
         vkFreeCommandBuffers(device, command_pool, swapchain_image_count, command_buffers.ptr);
         allocator.free(command_buffers);
     }
 
-    const cmd_alloc_info = c.VkCommandBufferAllocateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+    const cmd_alloc_info = vulkan_c.VkCommandBufferAllocateInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
         .commandPool = command_pool,
-        .level = c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+        .level = vulkan_c.VK_COMMAND_BUFFER_LEVEL_PRIMARY,
         .commandBufferCount = swapchain_image_count,
     };
 
-    if (vkAllocateCommandBuffers(device, &cmd_alloc_info, command_buffers.ptr) != c.VK_SUCCESS) {
+    if (vkAllocateCommandBuffers(device, &cmd_alloc_info, command_buffers.ptr) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to allocate command buffers\n", .{});
         return error.CommandBufferAllocationFailed;
     }
@@ -832,31 +838,31 @@ pub fn main() !void {
 
     // Graphics pipeline creation
     const CreatePipelineLayoutFn = *const fn (
-        c.VkDevice,
-        [*c]const c.VkPipelineLayoutCreateInfo,
-        ?*const c.VkAllocationCallbacks,
-        *c.VkPipelineLayout,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        vulkan_c.VkDevice,
+        [*c]const vulkan_c.VkPipelineLayoutCreateInfo,
+        ?*const vulkan_c.VkAllocationCallbacks,
+        *vulkan_c.VkPipelineLayout,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const DestroyPipelineLayoutFn = *const fn (
-        c.VkDevice,
-        c.VkPipelineLayout,
-        ?*const c.VkAllocationCallbacks,
+        vulkan_c.VkDevice,
+        vulkan_c.VkPipelineLayout,
+        ?*const vulkan_c.VkAllocationCallbacks,
     ) callconv(std.builtin.CallingConvention.c) void;
 
     const CreateGraphicsPipelinesFn = *const fn (
-        c.VkDevice,
-        c.VkPipelineCache,
+        vulkan_c.VkDevice,
+        vulkan_c.VkPipelineCache,
         u32,
-        [*c]const c.VkGraphicsPipelineCreateInfo,
-        ?*const c.VkAllocationCallbacks,
-        [*]c.VkPipeline,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        [*c]const vulkan_c.VkGraphicsPipelineCreateInfo,
+        ?*const vulkan_c.VkAllocationCallbacks,
+        [*]vulkan_c.VkPipeline,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const DestroyPipelineFn = *const fn (
-        c.VkDevice,
-        c.VkPipeline,
-        ?*const c.VkAllocationCallbacks,
+        vulkan_c.VkDevice,
+        vulkan_c.VkPipeline,
+        ?*const vulkan_c.VkAllocationCallbacks,
     ) callconv(std.builtin.CallingConvention.c) void;
 
     const vkCreatePipelineLayout: CreatePipelineLayoutFn =
@@ -872,48 +878,48 @@ pub fn main() !void {
         loadVulkanFunc(DestroyPipelineFn, instance, "vkDestroyPipeline");
 
     // Create pipeline layout (empty for now, no descriptors)
-    const pipeline_layout_info = c.VkPipelineLayoutCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+    const pipeline_layout_info = vulkan_c.VkPipelineLayoutCreateInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
     };
 
-    var pipeline_layout: c.VkPipelineLayout = undefined;
-    if (vkCreatePipelineLayout(device, &pipeline_layout_info, null, &pipeline_layout) != c.VK_SUCCESS) {
+    var pipeline_layout: vulkan_c.VkPipelineLayout = undefined;
+    if (vkCreatePipelineLayout(device, &pipeline_layout_info, null, &pipeline_layout) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to create pipeline layout\n", .{});
         return error.PipelineLayoutCreationFailed;
     }
     defer vkDestroyPipelineLayout(device, pipeline_layout, null);
 
     // Shader stages
-    const vert_stage_info = c.VkPipelineShaderStageCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-        .stage = c.VK_SHADER_STAGE_VERTEX_BIT,
+    const vert_stage_info = vulkan_c.VkPipelineShaderStageCreateInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = vulkan_c.VK_SHADER_STAGE_VERTEX_BIT,
         .module = vert_shader_module,
         .pName = "main",
     };
 
-    const frag_stage_info = c.VkPipelineShaderStageCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-        .stage = c.VK_SHADER_STAGE_FRAGMENT_BIT,
+    const frag_stage_info = vulkan_c.VkPipelineShaderStageCreateInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .stage = vulkan_c.VK_SHADER_STAGE_FRAGMENT_BIT,
         .module = frag_shader_module,
         .pName = "main",
     };
 
-    const shader_stages = [_]c.VkPipelineShaderStageCreateInfo{ vert_stage_info, frag_stage_info };
+    const shader_stages = [_]vulkan_c.VkPipelineShaderStageCreateInfo{ vert_stage_info, frag_stage_info };
 
     // Vertex input state (no vertex buffers for now, hardcoded in shader)
-    const vertex_input_info = c.VkPipelineVertexInputStateCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+    const vertex_input_info = vulkan_c.VkPipelineVertexInputStateCreateInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
     };
 
     // Input assembly
-    const input_assembly = c.VkPipelineInputAssemblyStateCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-        .topology = c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-        .primitiveRestartEnable = c.VK_FALSE,
+    const input_assembly = vulkan_c.VkPipelineInputAssemblyStateCreateInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+        .topology = vulkan_c.VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+        .primitiveRestartEnable = vulkan_c.VK_FALSE,
     };
 
     // Viewport and scissor
-    const viewport = c.VkViewport{
+    const viewport = vulkan_c.VkViewport{
         .x = 0.0,
         .y = 0.0,
         .width = @floatFromInt(extent.width),
@@ -922,13 +928,13 @@ pub fn main() !void {
         .maxDepth = 1.0,
     };
 
-    const scissor = c.VkRect2D{
+    const scissor = vulkan_c.VkRect2D{
         .offset = .{ .x = 0, .y = 0 },
         .extent = extent,
     };
 
-    const viewport_state = c.VkPipelineViewportStateCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+    const viewport_state = vulkan_c.VkPipelineViewportStateCreateInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
         .viewportCount = 1,
         .pViewports = &viewport,
         .scissorCount = 1,
@@ -936,40 +942,40 @@ pub fn main() !void {
     };
 
     // Rasterizer
-    const rasterizer = c.VkPipelineRasterizationStateCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-        .depthClampEnable = c.VK_FALSE,
-        .rasterizerDiscardEnable = c.VK_FALSE,
-        .polygonMode = c.VK_POLYGON_MODE_FILL,
-        .cullMode = c.VK_CULL_MODE_NONE,
-        .frontFace = c.VK_FRONT_FACE_CLOCKWISE,
-        .depthBiasEnable = c.VK_FALSE,
+    const rasterizer = vulkan_c.VkPipelineRasterizationStateCreateInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .depthClampEnable = vulkan_c.VK_FALSE,
+        .rasterizerDiscardEnable = vulkan_c.VK_FALSE,
+        .polygonMode = vulkan_c.VK_POLYGON_MODE_FILL,
+        .cullMode = vulkan_c.VK_CULL_MODE_NONE,
+        .frontFace = vulkan_c.VK_FRONT_FACE_CLOCKWISE,
+        .depthBiasEnable = vulkan_c.VK_FALSE,
         .lineWidth = 1.0,
     };
 
     // Multisampling (no MSAA)
-    const multisampling = c.VkPipelineMultisampleStateCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-        .rasterizationSamples = c.VK_SAMPLE_COUNT_1_BIT,
-        .sampleShadingEnable = c.VK_FALSE,
+    const multisampling = vulkan_c.VkPipelineMultisampleStateCreateInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+        .rasterizationSamples = vulkan_c.VK_SAMPLE_COUNT_1_BIT,
+        .sampleShadingEnable = vulkan_c.VK_FALSE,
     };
 
     // Color blending (no blending, write all channels)
-    const color_blend_attachment = c.VkPipelineColorBlendAttachmentState{
-        .colorWriteMask = c.VK_COLOR_COMPONENT_R_BIT | c.VK_COLOR_COMPONENT_G_BIT | c.VK_COLOR_COMPONENT_B_BIT | c.VK_COLOR_COMPONENT_A_BIT,
-        .blendEnable = c.VK_FALSE,
+    const color_blend_attachment = vulkan_c.VkPipelineColorBlendAttachmentState{
+        .colorWriteMask = vulkan_c.VK_COLOR_COMPONENT_R_BIT | vulkan_c.VK_COLOR_COMPONENT_G_BIT | vulkan_c.VK_COLOR_COMPONENT_B_BIT | vulkan_c.VK_COLOR_COMPONENT_A_BIT,
+        .blendEnable = vulkan_c.VK_FALSE,
     };
 
-    const color_blending = c.VkPipelineColorBlendStateCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-        .logicOpEnable = c.VK_FALSE,
+    const color_blending = vulkan_c.VkPipelineColorBlendStateCreateInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .logicOpEnable = vulkan_c.VK_FALSE,
         .attachmentCount = 1,
         .pAttachments = &color_blend_attachment,
     };
 
     // Dynamic state (none for now)
-    const pipeline_info = c.VkGraphicsPipelineCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+    const pipeline_info = vulkan_c.VkGraphicsPipelineCreateInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         .stageCount = 2,
         .pStages = &shader_stages[0],
         .pVertexInputState = &vertex_input_info,
@@ -983,8 +989,8 @@ pub fn main() !void {
         .subpass = 0,
     };
 
-    var pipeline: c.VkPipeline = undefined;
-    if (vkCreateGraphicsPipelines(device, null, 1, &pipeline_info, null, @ptrCast(&pipeline)) != c.VK_SUCCESS) {
+    var pipeline: vulkan_c.VkPipeline = undefined;
+    if (vkCreateGraphicsPipelines(device, null, 1, &pipeline_info, null, @ptrCast(&pipeline)) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to create graphics pipeline\n", .{});
         return error.PipelineCreationFailed;
     }
@@ -994,28 +1000,28 @@ pub fn main() !void {
 
     // Record command buffers
     const BeginCommandBufferFn = *const fn (
-        c.VkCommandBuffer,
-        [*c]const c.VkCommandBufferBeginInfo,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        vulkan_c.VkCommandBuffer,
+        [*c]const vulkan_c.VkCommandBufferBeginInfo,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const EndCommandBufferFn = *const fn (
-        c.VkCommandBuffer,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        vulkan_c.VkCommandBuffer,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const CmdBeginRenderPassFn = *const fn (
-        c.VkCommandBuffer,
-        [*c]const c.VkRenderPassBeginInfo,
-        c.VkSubpassContents,
+        vulkan_c.VkCommandBuffer,
+        [*c]const vulkan_c.VkRenderPassBeginInfo,
+        vulkan_c.VkSubpassContents,
     ) callconv(std.builtin.CallingConvention.c) void;
 
     const CmdBindPipelineFn = *const fn (
-        c.VkCommandBuffer,
-        c.VkPipelineBindPoint,
-        c.VkPipeline,
+        vulkan_c.VkCommandBuffer,
+        vulkan_c.VkPipelineBindPoint,
+        vulkan_c.VkPipeline,
     ) callconv(std.builtin.CallingConvention.c) void;
 
     const CmdDrawFn = *const fn (
-        c.VkCommandBuffer,
+        vulkan_c.VkCommandBuffer,
         u32,
         u32,
         u32,
@@ -1023,7 +1029,7 @@ pub fn main() !void {
     ) callconv(std.builtin.CallingConvention.c) void;
 
     const CmdEndRenderPassFn = *const fn (
-        c.VkCommandBuffer,
+        vulkan_c.VkCommandBuffer,
     ) callconv(std.builtin.CallingConvention.c) void;
 
     const vkBeginCommandBuffer: BeginCommandBufferFn =
@@ -1044,21 +1050,21 @@ pub fn main() !void {
     const vkCmdEndRenderPass: CmdEndRenderPassFn =
         loadVulkanFunc(CmdEndRenderPassFn, instance, "vkCmdEndRenderPass");
 
-    const clear_color = c.VkClearValue{ .color = .{ .float32 = .{ 0.0, 0.0, 0.0, 1.0 } } };
+    const clear_color = vulkan_c.VkClearValue{ .color = .{ .float32 = .{ 0.0, 0.0, 0.0, 1.0 } } };
 
     for (command_buffers[0..swapchain_image_count], 0..) |cmd, i| {
-        const begin_info = c.VkCommandBufferBeginInfo{
-            .sType = c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-            .flags = c.VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT,
+        const begin_info = vulkan_c.VkCommandBufferBeginInfo{
+            .sType = vulkan_c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .flags = vulkan_c.VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT,
         };
 
-        if (vkBeginCommandBuffer(cmd, &begin_info) != c.VK_SUCCESS) {
+        if (vkBeginCommandBuffer(cmd, &begin_info) != vulkan_c.VK_SUCCESS) {
             std.debug.print("Failed to begin command buffer {}\n", .{i});
             return error.CommandBufferBeginFailed;
         }
 
-        const rp_begin = c.VkRenderPassBeginInfo{
-            .sType = c.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+        const rp_begin = vulkan_c.VkRenderPassBeginInfo{
+            .sType = vulkan_c.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
             .renderPass = render_pass,
             .framebuffer = framebuffers[i],
             .renderArea = .{ .offset = .{ .x = 0, .y = 0 }, .extent = extent },
@@ -1066,12 +1072,12 @@ pub fn main() !void {
             .pClearValues = &clear_color,
         };
 
-        vkCmdBeginRenderPass(cmd, &rp_begin, c.VK_SUBPASS_CONTENTS_INLINE);
-        vkCmdBindPipeline(cmd, c.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        vkCmdBeginRenderPass(cmd, &rp_begin, vulkan_c.VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(cmd, vulkan_c.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
         vkCmdDraw(cmd, 3, 1, 0, 0);
         vkCmdEndRenderPass(cmd);
 
-        if (vkEndCommandBuffer(cmd) != c.VK_SUCCESS) {
+        if (vkEndCommandBuffer(cmd) != vulkan_c.VK_SUCCESS) {
             std.debug.print("Failed to end command buffer {}\n", .{i});
             return error.CommandBufferEndFailed;
         }
@@ -1081,44 +1087,44 @@ pub fn main() !void {
 
     // Synchronization primitives
     const CreateSemaphoreFn = *const fn (
-        c.VkDevice,
-        [*c]const c.VkSemaphoreCreateInfo,
-        ?*const c.VkAllocationCallbacks,
-        *c.VkSemaphore,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        vulkan_c.VkDevice,
+        [*c]const vulkan_c.VkSemaphoreCreateInfo,
+        ?*const vulkan_c.VkAllocationCallbacks,
+        *vulkan_c.VkSemaphore,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const DestroySemaphoreFn = *const fn (
-        c.VkDevice,
-        c.VkSemaphore,
-        ?*const c.VkAllocationCallbacks,
+        vulkan_c.VkDevice,
+        vulkan_c.VkSemaphore,
+        ?*const vulkan_c.VkAllocationCallbacks,
     ) callconv(std.builtin.CallingConvention.c) void;
 
     const CreateFenceFn = *const fn (
-        c.VkDevice,
-        [*c]const c.VkFenceCreateInfo,
-        ?*const c.VkAllocationCallbacks,
-        *c.VkFence,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        vulkan_c.VkDevice,
+        [*c]const vulkan_c.VkFenceCreateInfo,
+        ?*const vulkan_c.VkAllocationCallbacks,
+        *vulkan_c.VkFence,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const DestroyFenceFn = *const fn (
-        c.VkDevice,
-        c.VkFence,
-        ?*const c.VkAllocationCallbacks,
+        vulkan_c.VkDevice,
+        vulkan_c.VkFence,
+        ?*const vulkan_c.VkAllocationCallbacks,
     ) callconv(std.builtin.CallingConvention.c) void;
 
     const WaitForFencesFn = *const fn (
-        c.VkDevice,
+        vulkan_c.VkDevice,
         u32,
-        [*]const c.VkFence,
-        c.VkBool32,
+        [*]const vulkan_c.VkFence,
+        vulkan_c.VkBool32,
         u64,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const ResetFencesFn = *const fn (
-        c.VkDevice,
+        vulkan_c.VkDevice,
         u32,
-        [*]const c.VkFence,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
+        [*]const vulkan_c.VkFence,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
     const vkCreateSemaphore: CreateSemaphoreFn =
         loadVulkanFunc(CreateSemaphoreFn, instance, "vkCreateSemaphore");
@@ -1138,28 +1144,65 @@ pub fn main() !void {
     const vkResetFences: ResetFencesFn =
         loadVulkanFunc(ResetFencesFn, instance, "vkResetFences");
 
-    var image_available: c.VkSemaphore = undefined;
-    var render_finished: c.VkSemaphore = undefined;
-    var in_flight_fence: c.VkFence = undefined;
+    const AcquireNextImageKHRFn = *const fn (
+        vulkan_c.VkDevice,
+        vulkan_c.VkSwapchainKHR,
+        u64,
+        vulkan_c.VkSemaphore,
+        vulkan_c.VkFence,
+        *u32,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
 
-    const semaphore_info = c.VkSemaphoreCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+    const vkAcquireNextImageKHR: AcquireNextImageKHRFn =
+        loadVulkanFunc(AcquireNextImageKHRFn, instance, "vkAcquireNextImageKHR");
+
+    const QueueSubmitFn = *const fn (
+        vulkan_c.VkQueue,
+        u32,
+        [*]const vulkan_c.VkSubmitInfo,
+        vulkan_c.VkFence,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
+
+    const vkQueueSubmit: QueueSubmitFn =
+        loadVulkanFunc(QueueSubmitFn, instance, "vkQueueSubmit");
+
+    const QueuePresentKHRFn = *const fn (
+        vulkan_c.VkQueue,
+        [*]const vulkan_c.VkPresentInfoKHR,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
+
+    const vkQueuePresentKHR: QueuePresentKHRFn =
+        loadVulkanFunc(QueuePresentKHRFn, instance, "vkQueuePresentKHR");
+
+    const QueueWaitIdleFn = *const fn (
+        vulkan_c.VkQueue,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
+
+    const vkQueueWaitIdle: QueueWaitIdleFn =
+        loadVulkanFunc(QueueWaitIdleFn, instance, "vkQueueWaitIdle");
+
+    var image_available: vulkan_c.VkSemaphore = undefined;
+    var render_finished: vulkan_c.VkSemaphore = undefined;
+    var in_flight_fence: vulkan_c.VkFence = undefined;
+
+    const semaphore_info = vulkan_c.VkSemaphoreCreateInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
     };
 
-    if (vkCreateSemaphore(device, &semaphore_info, null, &image_available) != c.VK_SUCCESS or
-        vkCreateSemaphore(device, &semaphore_info, null, &render_finished) != c.VK_SUCCESS) {
+    if (vkCreateSemaphore(device, &semaphore_info, null, &image_available) != vulkan_c.VK_SUCCESS or
+        vkCreateSemaphore(device, &semaphore_info, null, &render_finished) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to create semaphores\n", .{});
         return error.SemaphoreCreationFailed;
     }
     defer vkDestroySemaphore(device, image_available, null);
     defer vkDestroySemaphore(device, render_finished, null);
 
-    const fence_info = c.VkFenceCreateInfo{
-        .sType = c.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-        .flags = c.VK_FENCE_CREATE_SIGNALED_BIT, // Start signaled so first frame can proceed
+    const fence_info = vulkan_c.VkFenceCreateInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+        .flags = vulkan_c.VK_FENCE_CREATE_SIGNALED_BIT, // Start signaled so first frame can proceed
     };
 
-    if (vkCreateFence(device, &fence_info, null, &in_flight_fence) != c.VK_SUCCESS) {
+    if (vkCreateFence(device, &fence_info, null, &in_flight_fence) != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to create fence\n", .{});
         return error.FenceCreationFailed;
     }
@@ -1167,61 +1210,72 @@ pub fn main() !void {
 
     std.debug.print("Synchronization primitives created\n", .{});
 
-    // Load queue submission and presentation functions
-    const QueueSubmitFn = *const fn (
-        c.VkQueue,
-        u32,
-        [*]const c.VkSubmitInfo,
-        c.VkFence,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
-
-    const QueuePresentKHRFn = *const fn (
-        c.VkQueue,
-        [*]const c.VkPresentInfoKHR,
-    ) callconv(std.builtin.CallingConvention.c) c.VkResult;
-
-    const vkQueueSubmit: QueueSubmitFn =
-        loadVulkanFunc(QueueSubmitFn, instance, "vkQueueSubmit");
-
-    const vkQueuePresentKHR: QueuePresentKHRFn =
-        loadVulkanFunc(QueuePresentKHRFn, instance, "vkQueuePresentKHR");
-
     std.debug.print("Starting render loop...\n", .{});
 
     // Main loop
-    while (c.glfwWindowShouldClose(window) == 0) {
-        c.glfwPollEvents();
+    while (glfw.glfwWindowShouldClose(window) == 0) {
+        glfw.glfwPollEvents();
 
         // Wait for previous frame to finish
-        _ = vkWaitForFences(device, 1, @ptrCast(&in_flight_fence), c.VK_TRUE, ~@as(u64, 0));
+        _ = vkWaitForFences(device, 1, @ptrCast(&in_flight_fence), vulkan_c.VK_TRUE, ~@as(u64, 0));
         _ = vkResetFences(device, 1, @ptrCast(&in_flight_fence));
 
         // Acquire next swapchain image
         var image_index: u32 = undefined;
-        if (c.vkAcquireNextImageKHR(device, swapchain, ~@as(u64, 0), image_available, null, &image_index) != c.VK_SUCCESS) {
+        if (vkAcquireNextImageKHR(device, swapchain, ~@as(u64, 0), image_available, null, &image_index) != vulkan_c.VK_SUCCESS) {
+            continue;
+        }
+
+        // Begin command buffer recording
+        const begin_info = vulkan_c.VkCommandBufferBeginInfo{
+            .sType = vulkan_c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .flags = vulkan_c.VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT,
+        };
+
+        if (vulkan_c.vkBeginCommandBuffer(command_buffers[image_index], &begin_info) != vulkan_c.VK_SUCCESS) {
+            continue;
+        }
+
+        const render_clear_color = vulkan_c.VkClearValue{ .color = .{ .float32 = .{ 0.0, 0.0, 0.0, 1.0 } } };
+
+        const rp_begin = vulkan_c.VkRenderPassBeginInfo{
+            .sType = vulkan_c.VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+            .renderPass = render_pass,
+            .framebuffer = framebuffers[image_index],
+            .renderArea = .{ .offset = .{ .x = 0, .y = 0 }, .extent = extent },
+            .clearValueCount = 1,
+            .pClearValues = &render_clear_color,
+        };
+
+        vulkan_c.vkCmdBeginRenderPass(command_buffers[image_index], &rp_begin, vulkan_c.VK_SUBPASS_CONTENTS_INLINE);
+        vulkan_c.vkCmdBindPipeline(command_buffers[image_index], vulkan_c.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+        vulkan_c.vkCmdDraw(command_buffers[image_index], 3, 1, 0, 0);
+        vulkan_c.vkCmdEndRenderPass(command_buffers[image_index]);
+
+        if (vulkan_c.vkEndCommandBuffer(command_buffers[image_index]) != vulkan_c.VK_SUCCESS) {
             continue;
         }
 
         // Submit command buffer
-        const submit_info = c.VkSubmitInfo{
-            .sType = c.VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        const submit_info = vulkan_c.VkSubmitInfo{
+            .sType = vulkan_c.VK_STRUCTURE_TYPE_SUBMIT_INFO,
             .waitSemaphoreCount = 1,
             .pWaitSemaphores = &image_available,
-            .pWaitDstStageMask = &[_]c.VkPipelineStageFlags{c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
+            .pWaitDstStageMask = &[_]vulkan_c.VkPipelineStageFlags{vulkan_c.VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
             .commandBufferCount = 1,
             .pCommandBuffers = &command_buffers[image_index],
             .signalSemaphoreCount = 1,
             .pSignalSemaphores = &render_finished,
         };
 
-        if (vkQueueSubmit(graphics_queue, 1, @ptrCast(&submit_info), in_flight_fence) != c.VK_SUCCESS) {
+        if (vkQueueSubmit(graphics_queue, 1, @ptrCast(&submit_info), in_flight_fence) != vulkan_c.VK_SUCCESS) {
             std.debug.print("Failed to submit draw command buffer\n", .{});
             break;
         }
 
         // Present
-        const present_info = c.VkPresentInfoKHR{
-            .sType = c.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+        const present_info = vulkan_c.VkPresentInfoKHR{
+            .sType = vulkan_c.VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
             .waitSemaphoreCount = 1,
             .pWaitSemaphores = &render_finished,
             .swapchainCount = 1,
@@ -1231,4 +1285,7 @@ pub fn main() !void {
 
         _ = vkQueuePresentKHR(present_queue, @ptrCast(&present_info));
     }
+
+    // Cleanup
+    _ = vkQueueWaitIdle(present_queue);
 }

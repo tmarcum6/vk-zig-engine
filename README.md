@@ -108,6 +108,7 @@ const c = @import("c"); // GLFW functions
 - Replaced `page_allocator` with `DebugAllocator`
 
 📋 **Next Steps:**
+- Figure out bindings because Vulkan is coming from GLFW currently
 - Validation layers for debugging
 - ImGui integration
 - Vertex buffers (replace hardcoded shader vertices)

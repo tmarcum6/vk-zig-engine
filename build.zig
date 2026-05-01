@@ -17,16 +17,33 @@ pub fn build(b: *std.Build) void {
     });
     const glfw_artifact = glfw_dep.artifact("glfw");
 
+    // GLFW C bindings (GLFW only)
     const glfw_c = b.addTranslateC(.{
-        .root_source_file = b.path("src/c/glfw.h"),
+        .root_source_file = b.path("src/headers/glfw.h"),
         .target = target,
         .optimize = optimize,
     });
     glfw_c.addSystemIncludePath(glfw_artifact.getEmittedIncludeTree());
-    // Add MoltenVK/Vulkan headers for GLFW Vulkan function declarations
-    const moltenvk_include = b.path("moltenvk_include");
-    glfw_c.addSystemIncludePath(moltenvk_include);
     const glfw_c_module = glfw_c.createModule();
+
+    // Vulkan C bindings (from MoltenVK headers)
+    const vulkan_c = b.addTranslateC(.{
+        .root_source_file = b.path("src/headers/vulkan.h"),
+        .target = target,
+        .optimize = optimize,
+    });
+    vulkan_c.addSystemIncludePath(.{ .cwd_relative = "/opt/homebrew/Cellar/molten-vk/1.4.1/libexec/include" });
+    const vulkan_c_module = vulkan_c.createModule();
+
+    // cimgui dependency (C bindings for ImGui - using docking branch)
+    const cimgui_dep = b.dependency("cimgui", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const cimgui_module = cimgui_dep.module("cimgui_docking");
+    const cimgui_clib = cimgui_dep.artifact("cimgui_docking_clib");
+
+    // ImGui implementation files - TODO: Add proper C++ backend integration later
 
     const exe = b.addExecutable(.{
         .name = "vk_zig_engine",
@@ -36,12 +53,15 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "vulkan", .module = vulkan_module },
-                .{ .name = "c", .module = glfw_c_module },
+                .{ .name = "glfw", .module = glfw_c_module },
+                .{ .name = "vulkan_c", .module = vulkan_c_module },
+                .{ .name = "imgui", .module = cimgui_module },
             },
         }),
     });
 
     exe.root_module.linkLibrary(glfw_artifact);
+    exe.root_module.linkLibrary(cimgui_clib);
 
     // macOS: Link MoltenVK for Vulkan support
     if (target.result.os.tag == .macos) {

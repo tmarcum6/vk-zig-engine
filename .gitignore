@@ -1,4 +1,5 @@
 .zig-cache/
 zig-out/
+zig-pkg/
 lib_search
 moltenvk_include

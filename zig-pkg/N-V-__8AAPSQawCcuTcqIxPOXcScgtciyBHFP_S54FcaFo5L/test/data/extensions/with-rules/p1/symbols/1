@@ -1,3 +1,0 @@
-default xkb_symbols {
-	key <AC01> { [a, A] };
-};

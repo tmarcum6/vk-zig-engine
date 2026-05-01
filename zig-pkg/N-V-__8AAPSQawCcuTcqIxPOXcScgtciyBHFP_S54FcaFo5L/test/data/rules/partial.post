@@ -1,5 +1,0 @@
-! layout[any]	=	symbols
-  l2		=	+extra:%i
-
-! layout[any]	option		=	symbols
-  *		opt:a		=	+a:%i
