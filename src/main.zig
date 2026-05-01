@@ -2,6 +2,7 @@ const std = @import("std");
 const glfw = @import("glfw");
 const vulkan_c = @import("vulkan_c");
 const imgui = @import("imgui");
+const imgui_wrapper = @import("imgui_wrapper");
 
 // GLFW Vulkan functions - declared manually to use vulkan_c types
 extern fn glfwGetInstanceProcAddress(instance: vulkan_c.VkInstance, procname: [*c]const u8) ?*const anyopaque;
@@ -715,6 +716,71 @@ pub fn main() !void {
 
     std.debug.print("Render pass created successfully\n", .{});
 
+    // Create descriptor pool for ImGui
+    const pool_sizes = [_]vulkan_c.VkDescriptorPoolSize{
+        .{ .type = vulkan_c.VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount = 1 },
+        .{ .type = vulkan_c.VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .descriptorCount = 1 },
+    };
+
+    const descriptor_pool_info = vulkan_c.VkDescriptorPoolCreateInfo{
+        .sType = vulkan_c.VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .poolSizeCount = pool_sizes.len,
+        .pPoolSizes = &pool_sizes[0],
+        .maxSets = 2,
+    };
+
+    var descriptor_pool: vulkan_c.VkDescriptorPool = undefined;
+    const CreateDescriptorPoolFn = *const fn (
+        vulkan_c.VkDevice,
+        [*c]const vulkan_c.VkDescriptorPoolCreateInfo,
+        ?*const vulkan_c.VkAllocationCallbacks,
+        *vulkan_c.VkDescriptorPool,
+    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
+
+    const vkCreateDescriptorPool: CreateDescriptorPoolFn =
+        loadVulkanFunc(CreateDescriptorPoolFn, instance, "vkCreateDescriptorPool");
+
+    if (vkCreateDescriptorPool(device, &descriptor_pool_info, null, &descriptor_pool) != vulkan_c.VK_SUCCESS) {
+        std.debug.print("Failed to create descriptor pool for ImGui\n", .{});
+        return error.DescriptorPoolCreationFailed;
+    }
+    defer {
+        const DestroyDescriptorPoolFn = *const fn (
+            vulkan_c.VkDevice,
+            vulkan_c.VkDescriptorPool,
+            ?*const vulkan_c.VkAllocationCallbacks,
+        ) callconv(std.builtin.CallingConvention.c) void;
+
+        const vkDestroyDescriptorPool: DestroyDescriptorPoolFn =
+            loadVulkanFunc(DestroyDescriptorPoolFn, instance, "vkDestroyDescriptorPool");
+        vkDestroyDescriptorPool(device, descriptor_pool, null);
+    }
+
+    std.debug.print("Descriptor pool created for ImGui\n", .{});
+
+    // Initialize ImGui GLFW backend
+    imgui_wrapper.imgui_wrapper_glfw_set_window(@as(?*anyopaque, @ptrCast(window)));
+    imgui_wrapper.imgui_wrapper_glfw_init();
+
+    // Initialize ImGui Vulkan backend
+    imgui_wrapper.imgui_wrapper_vulkan_init(
+        @as(?*anyopaque, @ptrCast(instance)),
+        @as(?*anyopaque, @ptrCast(selected_device)),
+        @as(?*anyopaque, @ptrCast(device)),
+        graphics_family,
+        @as(?*anyopaque, @ptrCast(graphics_queue)),
+        @as(?*anyopaque, null), // PipelineCache (null)
+        @as(?*anyopaque, @ptrCast(descriptor_pool)),
+        2, // MinImageCount
+        swapchain_image_count,
+        @as(?*anyopaque, @ptrCast(render_pass)),
+        vulkan_c.VK_SAMPLE_COUNT_1_BIT,
+        @as(?*anyopaque, null), // Allocator
+        null // CheckVkResultFn
+    );
+
+    std.debug.print("ImGui backends initialized\n", .{});
+
     // Framebuffer creation
     const CreateFramebufferFn = *const fn (
         vulkan_c.VkDevice,
@@ -1226,6 +1292,9 @@ pub fn main() !void {
             continue;
         }
 
+        // ImGui new frame
+        imgui_wrapper.imgui_wrapper_new_frame();
+
         // Begin command buffer recording
         const begin_info = vulkan_c.VkCommandBufferBeginInfo{
             .sType = vulkan_c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -1249,6 +1318,10 @@ pub fn main() !void {
 
         vulkan_c.vkCmdBeginRenderPass(command_buffers[image_index], &rp_begin, vulkan_c.VK_SUBPASS_CONTENTS_INLINE);
         vulkan_c.vkCmdBindPipeline(command_buffers[image_index], vulkan_c.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+        // Render ImGui
+        imgui_wrapper.imgui_wrapper_render(@as(?*anyopaque, @ptrCast(command_buffers[image_index])));
+
         vulkan_c.vkCmdDraw(command_buffers[image_index], 3, 1, 0, 0);
         vulkan_c.vkCmdEndRenderPass(command_buffers[image_index]);
 
@@ -1288,4 +1361,8 @@ pub fn main() !void {
 
     // Cleanup
     _ = vkQueueWaitIdle(present_queue);
+
+    // Shutdown ImGui
+    imgui_wrapper.imgui_wrapper_vulkan_shutdown();
+    imgui_wrapper.imgui_wrapper_glfw_shutdown();
 }
