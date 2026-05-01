@@ -3,3 +3,16 @@ zig-out/
 zig-pkg/
 lib_search
 moltenvk_include
+
+# Generated shader binaries
+src/shaders/*.spv
+
+# macOS
+.DS_Store
+
+# IDE/Editor
+compile_commands.json
+.vscode/
+.idea/
+*.swp
+*.swo

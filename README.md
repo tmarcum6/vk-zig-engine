@@ -44,8 +44,9 @@ export VK_ICD_FILENAMES=/opt/homebrew/share/vulkan/icd.d/MoltenVK_icd.json
 ## Dependencies
 
 - [glfw.zig](https://github.com/tiawl/glfw.zig) - GLFW library for Zig (includes C header translation)
-- [cimgui](https://github.com/floooh/cimgui) - C bindings for ImGui (docking branch)
+- [cimgui](https://github.com/floooh/cimgui) - C bindings for ImGui (docking branch, used by wrapper)
 - MoltenVK Vulkan headers - Used via `translateC` for Vulkan C bindings (`vulkan_c` module)
+- ImGui C++ Wrapper (`src/imgui_wrapper/`) - Provides C-linkage functions for ImGui GLFW+Vulkan backends
 
 ## Building
 
@@ -92,7 +93,27 @@ Import the modules in your code:
 ```zig
 const glfw = @import("glfw");         // GLFW functions
 const vulkan_c = @import("vulkan_c"); // Vulkan C bindings (Vk* types, functions)
-const imgui = @import("imgui");       // ImGui C bindings (future use)
+const imgui = @import("imgui");       // ImGui C bindings (core functions)
+const imgui_wrapper = @import("imgui_wrapper"); // ImGui GLFW+Vulkan backend wrappers
+```
+
+### ImGui Integration (Example)
+
+```zig
+// Init ImGui backends
+imgui_wrapper.imgui_wrapper_glfw_init(window);
+imgui_wrapper.imgui_wrapper_vulkan_init(...);
+
+// Per frame
+imgui_wrapper.imgui_wrapper_new_frame();
+imgui.igBegin("Hello", null, 0);
+imgui.igText("Counter: %d", &counter);
+imgui.igEnd();
+imgui_wrapper.imgui_wrapper_render(command_buffer);
+
+// Shutdown
+imgui_wrapper.imgui_wrapper_vulkan_shutdown();
+imgui_wrapper.imgui_wrapper_glfw_shutdown();
 ```
 
 ## Current Status
@@ -113,6 +134,10 @@ const imgui = @import("imgui");       // ImGui C bindings (future use)
 - Synchronization (semaphores + fences): **Working**
 - Main render loop (acquire → submit → present): **Working**
 - Basic triangle rendering: **Working** (red triangle on black background)
+- ImGui C++ wrapper library: **Implemented** (`src/imgui_wrapper/`)
+  - GLFW platform backend (C++ wrapper)
+  - Vulkan renderer backend (C++ wrapper)
+  - Zig can call via `imgui_wrapper` module
 
 🔧 **Code Review Completed:**
 - Fixed physical device selection logic (per-device variables)
@@ -121,10 +146,11 @@ const imgui = @import("imgui");       // ImGui C bindings (future use)
 - Removed unused vulkan-zig dependency (now using C headers via `translateC`)
 - Removed unused `src/c/` directory
 - Removed unused `registry/` directory
+- Implemented ImGui backend wrapper (Step 1 complete)
 
 📋 **Next Steps:**
 - Validation layers for debugging
-- ImGui integration (overlay)
+- Integrate ImGui into main.zig render loop
 - Vertex buffers (replace hardcoded shader vertices)
 - Depth buffering
 - Uniform buffers (MVP matrices)
