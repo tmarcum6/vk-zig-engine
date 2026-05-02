@@ -26,6 +26,8 @@ void imgui_wrapper_glfw_set_window(void* window) {
 }
 
 void imgui_wrapper_glfw_init() {
+    fprintf(stderr, "DEBUG: Entering imgui_wrapper_glfw_init, s_window=%p\n", s_window);
+    
     // Create ImGui context
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
@@ -34,8 +36,18 @@ void imgui_wrapper_glfw_init() {
     
     fprintf(stderr, "DEBUG: GLFW window handle = %p\n", s_window);
     if (s_window) {
-        ImGui_ImplGlfw_InitForVulkan(s_window, true);
-        fprintf(stderr, "DEBUG: ImGui GLFW backend initialized\n");
+        fprintf(stderr, "DEBUG: Calling ImGui_ImplGlfw_InitForVulkan\n");
+        bool init_result = ImGui_ImplGlfw_InitForVulkan(s_window, true);
+        fprintf(stderr, "DEBUG: ImGui_ImplGlfw_InitForVulkan returned %d\n", init_result);
+        
+        if (init_result) {
+            fprintf(stderr, "DEBUG: ImGui GLFW backend initialized\n");
+            // Check if backend data was set
+            ImGuiViewport* viewport = ImGui::GetMainViewport();
+            fprintf(stderr, "DEBUG: Viewport platform handle = %p\n", viewport->PlatformHandle);
+        } else {
+            fprintf(stderr, "ERROR: ImGui_ImplGlfw_InitForVulkan failed!\n");
+        }
     } else {
         fprintf(stderr, "ERROR: GLFW window handle not set. Call imgui_wrapper_glfw_set_window() first!\n");
     }
@@ -43,8 +55,10 @@ void imgui_wrapper_glfw_init() {
 
 void imgui_wrapper_glfw_shutdown() {
     if (s_window) {
-        fprintf(stderr, "DEBUG: Shutting down GLFW backend\n");
         ImGui_ImplGlfw_Shutdown();
+        fprintf(stderr, "DEBUG: GLFW backend shut down\n");
+    } else {
+        fprintf(stderr, "DEBUG: Skipping GLFW shutdown (no window set)\n");
     }
 }
 
@@ -77,9 +91,13 @@ void imgui_wrapper_vulkan_init(
 void imgui_wrapper_vulkan_shutdown() {
     if (s_vulkan_initialized) {
         ImGui_ImplVulkan_Shutdown();
+        ImGui::DestroyContext();
+        fprintf(stderr, "DEBUG: Vulkan backend shut down\n");
     }
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
+    else {
+        fprintf(stderr, "DEBUG: Skipping Vulkan shutdown (vulkan not initialized with imgui)\n");
+    }
+    
 }
 
 void imgui_wrapper_vulkan_set_min_image_count(uint32_t min_image_count) {

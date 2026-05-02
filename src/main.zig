@@ -4,11 +4,9 @@ const vulkan_c = @import("vulkan_c");
 const imgui = @import("imgui");
 const imgui_wrapper = @import("imgui_wrapper");
 
-// GLFW Vulkan functions - declared manually to use vulkan_c types
 extern fn glfwGetInstanceProcAddress(instance: vulkan_c.VkInstance, procname: [*c]const u8) ?*const anyopaque;
 extern fn glfwCreateWindowSurface(instance: vulkan_c.VkInstance, window: ?*anyopaque, allocator: ?*const anyopaque, surface: *vulkan_c.VkSurfaceKHR) vulkan_c.VkResult;
 
-// Vulkan function loader using GLFW's vkGetInstanceProcAddress
 fn loadVulkanFunc(comptime T: type, instance: vulkan_c.VkInstance, name: [*c]const u8) T {
     const func = glfwGetInstanceProcAddress(instance, name);
     return @ptrCast(@alignCast(func));
@@ -19,30 +17,25 @@ pub fn main() !void {
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
-    // Initialize GLFW
     if (glfw.glfwInit() == 0) {
         std.debug.print("Failed to initialize GLFW\n", .{});
         return error.GlfwInitFailed;
     }
     defer glfw.glfwTerminate();
 
-    // Check Vulkan support
     if (glfw.glfwVulkanSupported() == 0) {
         std.debug.print("Vulkan not supported by GLFW\n", .{});
         return error.VulkanNotSupported;
     }
 
-    // Window hints for Vulkan (no OpenGL context)
     glfw.glfwWindowHint(glfw.GLFW_CLIENT_API, glfw.GLFW_NO_API);
 
-    // Create window
     const window = glfw.glfwCreateWindow(800, 600, "VK Zig Engine", null, null) orelse {
         std.debug.print("Failed to create window\n", .{});
         return error.WindowCreationFailed;
     };
     defer glfw.glfwDestroyWindow(window);
 
-    // Get required Vulkan instance extensions from GLFW
     var ext_count: u32 = 0;
     const extensions = glfw.glfwGetRequiredInstanceExtensions(&ext_count);
     std.debug.print("Required extensions count: {}\n", .{ext_count});
@@ -763,19 +756,9 @@ pub fn main() !void {
     imgui_wrapper.imgui_wrapper_glfw_init();
 
     // Initialize ImGui Vulkan backend
-    imgui_wrapper.imgui_wrapper_vulkan_init(
-        @as(?*anyopaque, @ptrCast(instance)),
-        @as(?*anyopaque, @ptrCast(selected_device)),
-        @as(?*anyopaque, @ptrCast(device)),
-        graphics_family,
-        @as(?*anyopaque, @ptrCast(graphics_queue)),
-        @as(?*anyopaque, null), // PipelineCache (null)
-        @as(?*anyopaque, @ptrCast(descriptor_pool)),
-        2, // MinImageCount
-        swapchain_image_count,
-        @as(?*anyopaque, @ptrCast(render_pass)),
-        vulkan_c.VK_SAMPLE_COUNT_1_BIT,
-        @as(?*anyopaque, null), // Allocator
+    imgui_wrapper.imgui_wrapper_vulkan_init(@as(?*anyopaque, @ptrCast(instance)), @as(?*anyopaque, @ptrCast(selected_device)), @as(?*anyopaque, @ptrCast(device)), graphics_family, @as(?*anyopaque, @ptrCast(graphics_queue)), @as(?*anyopaque, null), // PipelineCache (null)
+        @as(?*anyopaque, @ptrCast(descriptor_pool)), 2, // MinImageCount
+        swapchain_image_count, @as(?*anyopaque, @ptrCast(render_pass)), vulkan_c.VK_SAMPLE_COUNT_1_BIT, @as(?*anyopaque, null), // Allocator
         null // CheckVkResultFn
     );
 
@@ -1256,7 +1239,8 @@ pub fn main() !void {
     };
 
     if (vkCreateSemaphore(device, &semaphore_info, null, &image_available) != vulkan_c.VK_SUCCESS or
-        vkCreateSemaphore(device, &semaphore_info, null, &render_finished) != vulkan_c.VK_SUCCESS) {
+        vkCreateSemaphore(device, &semaphore_info, null, &render_finished) != vulkan_c.VK_SUCCESS)
+    {
         std.debug.print("Failed to create semaphores\n", .{});
         return error.SemaphoreCreationFailed;
     }
