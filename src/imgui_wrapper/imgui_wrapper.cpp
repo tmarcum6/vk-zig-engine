@@ -42,7 +42,6 @@ void imgui_wrapper_glfw_init() {
         
         if (init_result) {
             fprintf(stderr, "DEBUG: ImGui GLFW backend initialized\n");
-            // Check if backend data was set
             ImGuiViewport* viewport = ImGui::GetMainViewport();
             fprintf(stderr, "DEBUG: Viewport platform handle = %p\n", viewport->PlatformHandle);
         } else {
@@ -57,7 +56,8 @@ void imgui_wrapper_glfw_shutdown() {
     if (s_window) {
         ImGui_ImplGlfw_Shutdown();
         fprintf(stderr, "DEBUG: GLFW backend shut down\n");
-    } else {
+    }
+    else {
         fprintf(stderr, "DEBUG: Skipping GLFW shutdown (no window set)\n");
     }
 }
@@ -74,18 +74,45 @@ void imgui_wrapper_vulkan_init(
     uint32_t image_count,
     imgui_vk_render_pass render_pass,
     VkSampleCountFlagBits msaa_samples,
-    void* allocator,
+    const VkAllocationCallbacks* allocator,
     void (*check_vk_result)(VkResult err)
 ) {
-    // DISABLED: Vulkan handle casting issue with MoltenVK
-    // TODO: Debug why vkGetPhysicalDeviceProperties crashes
-    fprintf(stderr, "DEBUG: Skipping ImGui Vulkan init (Instance=%p, PD=%p, Dev=%p)\n",
-            instance, physical_device, device);
-    (void)instance; (void)physical_device; (void)device; (void)queue_family;
-    (void)queue; (void)pipeline_cache; (void)descriptor_pool;
-    (void)min_image_count; (void)image_count; (void)render_pass;
-    (void)msaa_samples; (void)allocator; (void)check_vk_result;
-    s_vulkan_initialized = false;
+    fprintf(stderr, "DEBUG: ImGui Vulkan init (Instance=%p, PD=%p, Dev=%p, Queue=%p)\n",
+            instance, physical_device, device, queue);
+    
+    // Set up Vulkan init info - use render pass (not dynamic rendering)
+    ImGui_ImplVulkan_InitInfo init_info = {};
+    init_info.ApiVersion = VK_API_VERSION_1_3;
+    init_info.Instance = (VkInstance)instance;
+    init_info.PhysicalDevice = (VkPhysicalDevice)physical_device;
+    init_info.Device = (VkDevice)device;
+    init_info.QueueFamily = queue_family;
+    init_info.Queue = (VkQueue)queue;
+    init_info.PipelineCache = (VkPipelineCache)pipeline_cache;
+    init_info.DescriptorPool = (VkDescriptorPool)descriptor_pool;
+    init_info.MinImageCount = min_image_count;
+    init_info.ImageCount = image_count;
+    
+    // Use render pass (not dynamic rendering - avoids vkCmdBeginRenderingKHR issue)
+    init_info.UseDynamicRendering = false;
+    init_info.PipelineInfoMain.RenderPass = (VkRenderPass)render_pass;
+    init_info.PipelineInfoMain.Subpass = 0;
+    init_info.PipelineInfoMain.MSAASamples = msaa_samples;
+    
+    init_info.Allocator = allocator;
+    init_info.CheckVkResultFn = check_vk_result;
+    
+    fprintf(stderr, "DEBUG: Calling ImGui_ImplVulkan_Init with render pass\n");
+    bool result = ImGui_ImplVulkan_Init(&init_info);
+    fprintf(stderr, "DEBUG: ImGui_ImplVulkan_Init returned %d\n", result);
+    
+    if (result) {
+        s_vulkan_initialized = true;
+        fprintf(stderr, "DEBUG: ImGui Vulkan backend initialized\n");
+    } else {
+        s_vulkan_initialized = false;
+        fprintf(stderr, "ERROR: ImGui Vulkan backend init failed\n");
+    }
 }
 
 void imgui_wrapper_vulkan_shutdown() {
@@ -125,8 +152,10 @@ void imgui_wrapper_new_frame() {
 
 void imgui_wrapper_render(imgui_vk_command_buffer command_buffer) {
     ImGui::Render();
-    if (s_vulkan_initialized) {
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), *(VkCommandBuffer*)&command_buffer, VK_NULL_HANDLE);
+    if (s_vulkan_initialized && command_buffer != nullptr) {
+        // command_buffer is already a VkCommandBuffer (passed as void* from Zig)
+        VkCommandBuffer cmd = (VkCommandBuffer)command_buffer;
+        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd, VK_NULL_HANDLE);
     }
 }
 
@@ -134,4 +163,3 @@ void imgui_wrapper_vulkan_create_fonts_texture(imgui_vk_command_buffer command_b
     // Fonts texture is now created automatically in ImGui_ImplVulkan_Init()
     // This function is kept for API compatibility but does nothing
 }
-

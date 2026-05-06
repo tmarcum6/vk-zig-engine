@@ -4,13 +4,22 @@ const vulkan_c = @import("vulkan_c");
 const imgui = @import("imgui");
 const imgui_wrapper = @import("imgui_wrapper");
 
-extern fn glfwGetInstanceProcAddress(instance: vulkan_c.VkInstance, procname: [*c]const u8) ?*const anyopaque;
-extern fn glfwCreateWindowSurface(instance: vulkan_c.VkInstance, window: ?*anyopaque, allocator: ?*const anyopaque, surface: *vulkan_c.VkSurfaceKHR) vulkan_c.VkResult;
+// Use vkGetInstanceProcAddr from MoltenVK for loading functions
+extern fn vkGetInstanceProcAddr(vulkan_c.VkInstance, [*c]const u8) ?*const anyopaque;
 
 fn loadVulkanFunc(comptime T: type, instance: vulkan_c.VkInstance, name: [*c]const u8) T {
-    const func = glfwGetInstanceProcAddress(instance, name);
+    const func = vkGetInstanceProcAddr(instance, name);
     return @ptrCast(@alignCast(func));
 }
+
+// vkCreateInstance is provided by MoltenVK
+extern fn vkCreateInstance([*c]const vulkan_c.VkInstanceCreateInfo, ?*const vulkan_c.VkAllocationCallbacks, *vulkan_c.VkInstance) vulkan_c.VkResult;
+
+// Manual Metal surface creation (bypasses GLFW's problematic surface creation)
+extern fn CreateMetalSurface(vulkan_c.VkInstance, ?*anyopaque, *vulkan_c.VkSurfaceKHR) vulkan_c.VkResult;
+
+// Get Cocoa window handle from GLFW
+extern fn glfwGetCocoaWindow(window: ?*anyopaque) ?*anyopaque;
 
 pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}){};
@@ -58,17 +67,11 @@ pub fn main() !void {
         .ppEnabledExtensionNames = extensions,
     };
 
-    // Load vkCreateInstance function
-    const CreateInstanceFn = *const fn (
-        [*c]const vulkan_c.VkInstanceCreateInfo,
-        ?*const vulkan_c.VkAllocationCallbacks,
-        *vulkan_c.VkInstance,
-    ) callconv(std.builtin.CallingConvention.c) vulkan_c.VkResult;
-
-    const vkCreateInstance: CreateInstanceFn = loadVulkanFunc(CreateInstanceFn, null, "vkCreateInstance");
-
     var instance: vulkan_c.VkInstance = undefined;
-    if (vkCreateInstance(&instance_create_info, null, &instance) != vulkan_c.VK_SUCCESS) {
+    std.debug.print("Calling vkCreateInstance...\n", .{});
+    const result = vkCreateInstance(&instance_create_info, null, &instance);
+    std.debug.print("vkCreateInstance result: {}, instance pointer: {}\n", .{result, @intFromPtr(instance)});
+    if (result != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to create Vulkan instance\n", .{});
         return error.InstanceFailed;
     }
@@ -79,18 +82,28 @@ pub fn main() !void {
         vkDestroyInstance(instance, null);
     }
 
-    // Create Vulkan surface using GLFW
+    // Create Vulkan surface using manual Metal surface creation
+    std.debug.print("Creating Vulkan surface (Metal)...\n", .{});
     var surface: vulkan_c.VkSurfaceKHR = undefined;
-    const surface_result = glfwCreateWindowSurface(
-        instance,
-        window,
-        null,
-        &surface,
-    );
+    
+    // Get Cocoa window handle from GLFW
+    const cocoa_window = glfwGetCocoaWindow(window);
+    std.debug.print("Cocoa window: {}\n", .{@intFromPtr(cocoa_window)});
+    
+    if (cocoa_window == null) {
+        std.debug.print("Failed to get Cocoa window\n", .{});
+        return error.SurfaceFailed;
+    }
+    
+    // Create Metal surface manually (bypasses GLFW's problematic surface creation)
+    const surface_result = CreateMetalSurface(instance, cocoa_window, &surface);
+    std.debug.print("CreateMetalSurface result: {}, surface: {}\n", .{ surface_result, @intFromPtr(surface) });
+    
     if (surface_result != vulkan_c.VK_SUCCESS) {
         std.debug.print("Failed to create Vulkan surface: {}\n", .{surface_result});
         return error.SurfaceFailed;
     }
+    std.debug.print("Surface created: {}\n", .{@intFromPtr(surface)});
     defer {
         const DestroySurfaceFn = *const fn (vulkan_c.VkInstance, vulkan_c.VkSurfaceKHR, ?*const vulkan_c.VkAllocationCallbacks) callconv(std.builtin.CallingConvention.c) void;
         const vkDestroySurfaceKHR: DestroySurfaceFn =
@@ -755,10 +768,10 @@ pub fn main() !void {
     imgui_wrapper.imgui_wrapper_glfw_set_window(@as(?*anyopaque, @ptrCast(window)));
     imgui_wrapper.imgui_wrapper_glfw_init();
 
-    // Initialize ImGui Vulkan backend
+    // Initialize ImGui Vulkan backend with render pass
     imgui_wrapper.imgui_wrapper_vulkan_init(@as(?*anyopaque, @ptrCast(instance)), @as(?*anyopaque, @ptrCast(selected_device)), @as(?*anyopaque, @ptrCast(device)), graphics_family, @as(?*anyopaque, @ptrCast(graphics_queue)), @as(?*anyopaque, null), // PipelineCache (null)
         @as(?*anyopaque, @ptrCast(descriptor_pool)), 2, // MinImageCount
-        swapchain_image_count, @as(?*anyopaque, @ptrCast(render_pass)), vulkan_c.VK_SAMPLE_COUNT_1_BIT, @as(?*anyopaque, null), // Allocator
+        swapchain_image_count, @as(?*anyopaque, @ptrCast(render_pass)), vulkan_c.VK_SAMPLE_COUNT_1_BIT, null, // Allocator (null = use default)
         null // CheckVkResultFn
     );
 
@@ -1279,6 +1292,16 @@ pub fn main() !void {
         // ImGui new frame
         imgui_wrapper.imgui_wrapper_new_frame();
 
+        // Demo window widgets
+        _ = imgui.igBegin("Demo Window", null, 0);
+        imgui.igText("Hello from ImGui!");
+        imgui.igText("Vulkan backend is initialized!");
+        imgui.igText("Triangle should be visible too!");
+        imgui.igEnd();
+
+        // Render ImGui (call Render() but don't actually render to Vulkan)
+        imgui_wrapper.imgui_wrapper_render(@as(?*anyopaque, null));
+
         // Begin command buffer recording
         const begin_info = vulkan_c.VkCommandBufferBeginInfo{
             .sType = vulkan_c.VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -1303,11 +1326,16 @@ pub fn main() !void {
         vulkan_c.vkCmdBeginRenderPass(command_buffers[image_index], &rp_begin, vulkan_c.VK_SUBPASS_CONTENTS_INLINE);
         vulkan_c.vkCmdBindPipeline(command_buffers[image_index], vulkan_c.VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
+        // Draw triangle
+        vulkan_c.vkCmdDraw(command_buffers[image_index], 3, 1, 0, 0);
+
         // Render ImGui
         imgui_wrapper.imgui_wrapper_render(@as(?*anyopaque, @ptrCast(command_buffers[image_index])));
 
-        vulkan_c.vkCmdDraw(command_buffers[image_index], 3, 1, 0, 0);
         vulkan_c.vkCmdEndRenderPass(command_buffers[image_index]);
+
+        // Skip ImGui Vulkan rendering - MoltenVK crashes
+        // imgui_wrapper.imgui_wrapper_render(@as(?*anyopaque, @ptrCast(command_buffers[image_index])));
 
         if (vulkan_c.vkEndCommandBuffer(command_buffers[image_index]) != vulkan_c.VK_SUCCESS) {
             continue;
@@ -1346,7 +1374,7 @@ pub fn main() !void {
     // Cleanup
     _ = vkQueueWaitIdle(present_queue);
 
-    // Shutdown ImGui
-    imgui_wrapper.imgui_wrapper_vulkan_shutdown();
+    // Shutdown ImGui - GLFW backend first, then Vulkan
     imgui_wrapper.imgui_wrapper_glfw_shutdown();
+    imgui_wrapper.imgui_wrapper_vulkan_shutdown();
 }

@@ -110,6 +110,17 @@ pub fn build(b: *std.Build) void {
     exe.root_module.linkLibrary(cimgui_clib);
     exe.root_module.linkLibrary(imgui_wrapper_lib);
 
+    // Add macOS Metal surface helper (Objective-C)
+    if (target.result.os.tag == .macos) {
+        exe.root_module.addCSourceFile(.{
+            .file = b.path("src/macos_surface.m"),
+            // No -fobjc-arc flag - manage memory manually
+        });
+        // Link macOS frameworks for Metal surface creation
+        exe.root_module.linkFramework("Metal", .{});
+        exe.root_module.linkFramework("QuartzCore", .{});
+    }
+
     // macOS: Link MoltenVK for Vulkan support
     if (target.result.os.tag == .macos) {
         const brew_lib = b.path("lib_search");

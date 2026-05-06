@@ -36,7 +36,7 @@ void imgui_wrapper_vulkan_init(
     uint32_t image_count,
     imgui_vk_render_pass render_pass,
     VkSampleCountFlagBits msaa_samples,
-    void* allocator,
+    const VkAllocationCallbacks* allocator,
     void (*check_vk_result)(VkResult err)
 );
 void imgui_wrapper_vulkan_shutdown();

@@ -5,7 +5,7 @@ A Vulkan engine built with Zig, using GLFW for windowing and MoltenVK for Vulkan
 Using and documenting on my personal blog: https://crowsheart.com/
 
 Current state:
-![Triangle](triangle.png)
+![Triangle](triangle_imgui.png)
 
 ## Requirements
 
