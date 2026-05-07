@@ -36,7 +36,9 @@ VkResult CreateMetalSurface(VkInstance instance, void* cocoaWindow, VkSurfaceKHR
         return VK_ERROR_INITIALIZATION_FAILED;
     }
     
+#ifdef ENABLE_DEBUG_OUTPUT
     fprintf(stderr, "DEBUG: Got CAMetalLayer: %p\n", metalLayer);
+#endif
     
     // Load vkCreateMetalSurfaceEXT
     PFN_vkCreateMetalSurfaceEXT vkCreateMetalSurfaceEXT = 
@@ -56,7 +58,9 @@ VkResult CreateMetalSurface(VkInstance instance, void* cocoaWindow, VkSurfaceKHR
     surfaceInfo.pLayer = (const void*)metalLayer;
     
     VkResult result = vkCreateMetalSurfaceEXT(instance, &surfaceInfo, NULL, surface);
+#ifdef ENABLE_DEBUG_OUTPUT
     fprintf(stderr, "DEBUG: vkCreateMetalSurfaceEXT result: %d, surface: %p\n", result, surface ? *surface : NULL);
+#endif
     
     return result;
 }

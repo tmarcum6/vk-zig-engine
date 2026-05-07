@@ -26,7 +26,9 @@ void imgui_wrapper_glfw_set_window(void* window) {
 }
 
 void imgui_wrapper_glfw_init() {
+#ifdef ENABLE_DEBUG_OUTPUT
     fprintf(stderr, "DEBUG: Entering imgui_wrapper_glfw_init, s_window=%p\n", s_window);
+#endif
     
     // Create ImGui context
     ImGui::CreateContext();
@@ -34,16 +36,26 @@ void imgui_wrapper_glfw_init() {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
     
+#ifdef ENABLE_DEBUG_OUTPUT
     fprintf(stderr, "DEBUG: GLFW window handle = %p\n", s_window);
+#endif
     if (s_window) {
+#ifdef ENABLE_DEBUG_OUTPUT
         fprintf(stderr, "DEBUG: Calling ImGui_ImplGlfw_InitForVulkan\n");
+#endif
         bool init_result = ImGui_ImplGlfw_InitForVulkan(s_window, true);
+#ifdef ENABLE_DEBUG_OUTPUT
         fprintf(stderr, "DEBUG: ImGui_ImplGlfw_InitForVulkan returned %d\n", init_result);
+#endif
         
         if (init_result) {
+#ifdef ENABLE_DEBUG_OUTPUT
             fprintf(stderr, "DEBUG: ImGui GLFW backend initialized\n");
+#endif
             ImGuiViewport* viewport = ImGui::GetMainViewport();
+#ifdef ENABLE_DEBUG_OUTPUT
             fprintf(stderr, "DEBUG: Viewport platform handle = %p\n", viewport->PlatformHandle);
+#endif
         } else {
             fprintf(stderr, "ERROR: ImGui_ImplGlfw_InitForVulkan failed!\n");
         }
@@ -55,10 +67,14 @@ void imgui_wrapper_glfw_init() {
 void imgui_wrapper_glfw_shutdown() {
     if (s_window) {
         ImGui_ImplGlfw_Shutdown();
+#ifdef ENABLE_DEBUG_OUTPUT
         fprintf(stderr, "DEBUG: GLFW backend shut down\n");
+#endif
     }
     else {
+#ifdef ENABLE_DEBUG_OUTPUT
         fprintf(stderr, "DEBUG: Skipping GLFW shutdown (no window set)\n");
+#endif
     }
 }
 
@@ -77,8 +93,10 @@ void imgui_wrapper_vulkan_init(
     const VkAllocationCallbacks* allocator,
     void (*check_vk_result)(VkResult err)
 ) {
+#ifdef ENABLE_DEBUG_OUTPUT
     fprintf(stderr, "DEBUG: ImGui Vulkan init (Instance=%p, PD=%p, Dev=%p, Queue=%p)\n",
             instance, physical_device, device, queue);
+#endif
     
     // Set up Vulkan init info - use render pass (not dynamic rendering)
     ImGui_ImplVulkan_InitInfo init_info = {};
@@ -102,13 +120,19 @@ void imgui_wrapper_vulkan_init(
     init_info.Allocator = allocator;
     init_info.CheckVkResultFn = check_vk_result;
     
+#ifdef ENABLE_DEBUG_OUTPUT
     fprintf(stderr, "DEBUG: Calling ImGui_ImplVulkan_Init with render pass\n");
+#endif
     bool result = ImGui_ImplVulkan_Init(&init_info);
+#ifdef ENABLE_DEBUG_OUTPUT
     fprintf(stderr, "DEBUG: ImGui_ImplVulkan_Init returned %d\n", result);
+#endif
     
     if (result) {
         s_vulkan_initialized = true;
+#ifdef ENABLE_DEBUG_OUTPUT
         fprintf(stderr, "DEBUG: ImGui Vulkan backend initialized\n");
+#endif
     } else {
         s_vulkan_initialized = false;
         fprintf(stderr, "ERROR: ImGui Vulkan backend init failed\n");
@@ -119,10 +143,14 @@ void imgui_wrapper_vulkan_shutdown() {
     if (s_vulkan_initialized) {
         ImGui_ImplVulkan_Shutdown();
         ImGui::DestroyContext();
+#ifdef ENABLE_DEBUG_OUTPUT
         fprintf(stderr, "DEBUG: Vulkan backend shut down\n");
+#endif
     }
     else {
+#ifdef ENABLE_DEBUG_OUTPUT
         fprintf(stderr, "DEBUG: Skipping Vulkan shutdown (vulkan not initialized with imgui)\n");
+#endif
     }
     
 }

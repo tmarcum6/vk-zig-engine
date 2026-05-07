@@ -3,6 +3,7 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const debug = b.option(bool, "debug", "Enable debug output") orelse false;
 
     // GLFW dependency and C header translation
     const glfw_dep = b.dependency("glfw_zig", .{
@@ -44,6 +45,11 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
         .link_libcpp = true,
     });
+    const cpp_flags: []const []const u8 = if (debug)
+        &[_][]const u8{ "-std=c++17", "-DENABLE_DEBUG_OUTPUT" }
+    else
+        &[_][]const u8{"-std=c++17"};
+
     const imgui_cpp_sources = [_][]const u8{
         "src/imgui_wrapper/imgui_wrapper.cpp",
         "src/imgui_impl/imgui_impl_glfw.cpp",
@@ -52,7 +58,7 @@ pub fn build(b: *std.Build) void {
     for (imgui_cpp_sources) |src| {
         imgui_wrapper_mod.addCSourceFile(.{
             .file = b.path(src),
-            .flags = &.{"-std=c++17"},
+            .flags = cpp_flags,
         });
     }
     // Add ImGui core sources from cimgui package
@@ -111,9 +117,15 @@ pub fn build(b: *std.Build) void {
     exe.root_module.linkLibrary(imgui_wrapper_lib);
 
     // Add macOS Metal surface helper (Objective-C)
+    const objc_flags: []const []const u8 = if (debug)
+        &[_][]const u8{"-DENABLE_DEBUG_OUTPUT"}
+    else
+        &[_][]const u8{};
+
     if (target.result.os.tag == .macos) {
         exe.root_module.addCSourceFile(.{
             .file = b.path("src/macos_surface.m"),
+            .flags = objc_flags,
             // No -fobjc-arc flag - manage memory manually
         });
         // Link macOS frameworks for Metal surface creation
